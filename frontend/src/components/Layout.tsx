@@ -5,6 +5,7 @@ import styles from './Layout.module.css'
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '◻' },
   { to: '/members', label: 'Members', icon: '👥' },
+  { to: '/families', label: 'Families', icon: '🏠' },
   { to: '/giving', label: 'Giving', icon: '💰' },
   { to: '/events', label: 'Events', icon: '📅' },
   { to: '/groups', label: 'Groups', icon: '🏘' },

@@ -24,8 +24,18 @@ export default function MembersPage() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
 
-  const load = () => api.get<Member[]>('/members').then(setMembers).catch(e => setError(e.message))
+  const load = async () => {
+    try {
+      const data = await api.get<Member[]>('/members')
+      setMembers(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Load failed')
+    } finally {
+      setIsLoading(false)
+    }
+  }
   useEffect(() => { void load() }, [])
 
   const filtered = members.filter(m =>
@@ -84,7 +94,7 @@ export default function MembersPage() {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={5} className={styles.emptyState}>No members found</td></tr>
+              <tr><td colSpan={5} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No members found'}</td></tr>
             ) : filtered.map(m => (
               <tr key={m.id}>
                 <td>{m.first_name} {m.last_name}</td>

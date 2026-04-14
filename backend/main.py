@@ -159,6 +159,58 @@ def health():
 
 
 # ---------------------------------------------------------------------------
+# Church onboarding (called right after signup, before church_id is in JWT)
+# ---------------------------------------------------------------------------
+
+class ChurchIn(BaseModel):
+    church_name: str
+    pastor_name: str = ""
+    user_id: str = ""
+
+
+@app.post("/churches")
+def create_church(
+    body: ChurchIn,
+    credentials: Annotated[HTTPAuthorizationCredentials, Security(bearer_scheme)],
+    sb: SupabaseDep,
+):
+    """Create a church for a newly-registered user and stamp church_id into their
+    Supabase app_metadata so the next JWT refresh includes it."""
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+    except JWTError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+
+    user_id: str = payload.get("sub", "") or body.user_id
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id required")
+
+    church = sb_insert(sb, "churches", {
+        "name": body.church_name,
+        "pastor_name": body.pastor_name,
+    })
+    church_id = church["id"]
+
+    # Stamp church_id into the user's app_metadata so it flows into future JWTs.
+    try:
+        sb.auth.admin.update_user_by_id(
+            user_id,
+            {"app_metadata": {"church_id": church_id}},
+        )
+    except Exception:
+        # Non-fatal: the caller can also set this via Supabase dashboard / trigger.
+        pass
+
+    return {"church_id": church_id}
+
+
+# ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
 
@@ -200,6 +252,16 @@ class MemberIn(BaseModel):
     family_id: Optional[str] = None
 
 
+class MemberUpdateIn(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    photo_url: Optional[str] = None
+    family_id: Optional[str] = None
+
+
 @app.get("/members")
 def list_members(auth: AuthDep, sb: SupabaseDep):
     return sb_select(sb, "members", auth.church_id)
@@ -216,8 +278,11 @@ def get_member(member_id: str, auth: AuthDep, sb: SupabaseDep):
 
 
 @app.put("/members/{member_id}")
-def update_member(member_id: str, body: MemberIn, auth: AuthDep, sb: SupabaseDep):
-    return sb_update(sb, "members", auth.church_id, member_id, body.model_dump(exclude_none=True))
+def update_member(member_id: str, body: MemberUpdateIn, auth: AuthDep, sb: SupabaseDep):
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    return sb_update(sb, "members", auth.church_id, member_id, data)
 
 
 @app.delete("/members/{member_id}", status_code=204)
@@ -230,12 +295,25 @@ def delete_member(member_id: str, auth: AuthDep, sb: SupabaseDep):
 # ---------------------------------------------------------------------------
 
 class FamilyIn(BaseModel):
-    name: str
+    family_name: str
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
 
 
 @app.get("/families")
 def list_families(auth: AuthDep, sb: SupabaseDep):
-    return sb_select(sb, "families", auth.church_id)
+    rows = sb_select(sb, "families", auth.church_id)
+    for row in rows:
+        count_resp = sb.table("members").select("id", count="exact").eq("family_id", row["id"]).execute()
+        row["member_count"] = count_resp.count or 0
+    return rows
+
+
+@app.get("/families/{family_id}")
+def get_family(family_id: str, auth: AuthDep, sb: SupabaseDep):
+    return sb_get(sb, "families", auth.church_id, family_id)
 
 
 @app.post("/families", status_code=201)
@@ -280,6 +358,11 @@ def get_giving(record_id: str, auth: AuthDep, sb: SupabaseDep):
     return sb_get(sb, "giving", auth.church_id, record_id)
 
 
+@app.put("/giving/{record_id}")
+def update_giving(record_id: str, body: GivingIn, auth: AuthDep, sb: SupabaseDep):
+    return sb_update(sb, "giving", auth.church_id, record_id, body.model_dump())
+
+
 @app.delete("/giving/{record_id}", status_code=204)
 def delete_giving(record_id: str, auth: AuthDep, sb: SupabaseDep):
     sb_delete(sb, "giving", auth.church_id, record_id)
@@ -318,6 +401,39 @@ def update_event(event_id: str, body: EventIn, auth: AuthDep, sb: SupabaseDep):
 @app.delete("/events/{event_id}", status_code=204)
 def delete_event(event_id: str, auth: AuthDep, sb: SupabaseDep):
     sb_delete(sb, "events", auth.church_id, event_id)
+
+
+# Event attendance
+@app.get("/events/{event_id}/attendance")
+def list_attendance(event_id: str, auth: AuthDep, sb: SupabaseDep):
+    # verify event belongs to this church
+    sb_get(sb, "events", auth.church_id, event_id)
+    rows = sb.table("event_attendance").select("member_id").eq("event_id", event_id).execute().data
+    return [r["member_id"] for r in rows]
+
+
+class AttendanceIn(BaseModel):
+    member_id: str
+
+
+@app.post("/events/{event_id}/attendance", status_code=201)
+def check_in(event_id: str, body: AttendanceIn, auth: AuthDep, sb: SupabaseDep):
+    sb_get(sb, "events", auth.church_id, event_id)
+    return sb_insert(sb, "event_attendance", {"event_id": event_id, "member_id": body.member_id})
+
+
+@app.delete("/events/{event_id}/attendance/{member_id}", status_code=204)
+def check_out(event_id: str, member_id: str, auth: AuthDep, sb: SupabaseDep):
+    sb_get(sb, "events", auth.church_id, event_id)
+    sb.table("event_attendance").delete().eq("event_id", event_id).eq("member_id", member_id).execute()
+
+
+# Group membership list
+@app.get("/groups/{group_id}/members")
+def list_group_members(group_id: str, auth: AuthDep, sb: SupabaseDep):
+    sb_get(sb, "groups", auth.church_id, group_id)
+    rows = sb.table("group_members").select("member_id").eq("group_id", group_id).execute().data
+    return [r["member_id"] for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +547,42 @@ def report_members(year: int, month: int, auth: AuthDep, sb: SupabaseDep):
         .data
     )
     return {"total": total, "added_this_month": added}
+
+
+@app.get("/reports/annual-giving")
+def report_annual_giving(year: int, auth: AuthDep, sb: SupabaseDep):
+    """Per-member giving totals for the entire year — used for tax letters."""
+    cid = auth.church_id
+    start = f"{year}-01-01"
+    end = f"{year + 1}-01-01"
+
+    rows = (
+        sb.table("giving")
+        .select("member_id, amount")
+        .eq("church_id", cid)
+        .gte("date", start)
+        .lt("date", end)
+        .execute()
+        .data
+    )
+
+    # Load members for name lookup
+    member_rows = sb.table("members").select("id, first_name, last_name").eq("church_id", cid).execute().data
+    member_map = {m["id"]: m for m in member_rows}
+
+    agg: dict = {}
+    for r in rows:
+        mid = r["member_id"] or "anonymous"
+        if mid not in agg:
+            if mid == "anonymous":
+                agg[mid] = {"member_id": None, "first_name": "Anonymous", "last_name": "", "total": 0.0, "transactions": 0}
+            else:
+                m = member_map.get(mid, {})
+                agg[mid] = {"member_id": mid, "first_name": m.get("first_name", ""), "last_name": m.get("last_name", ""), "total": 0.0, "transactions": 0}
+        agg[mid]["total"] += r["amount"]
+        agg[mid]["transactions"] += 1
+
+    return sorted(agg.values(), key=lambda x: (x["last_name"], x["first_name"]))
 
 
 # ---------------------------------------------------------------------------

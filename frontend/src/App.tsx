@@ -4,6 +4,8 @@ import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import MembersPage from './pages/MembersPage'
+import FamiliesPage from './pages/FamiliesPage'
+import FamilyDetailPage from './pages/FamilyDetailPage'
 import GivingPage from './pages/GivingPage'
 import EventsPage from './pages/EventsPage'
 import GroupsPage from './pages/GroupsPage'
@@ -27,6 +29,8 @@ function AppRoutes() {
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
         <Route path="members" element={<MembersPage />} />
+        <Route path="families" element={<FamiliesPage />} />
+        <Route path="families/:id" element={<FamilyDetailPage />} />
         <Route path="giving" element={<GivingPage />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="groups" element={<GroupsPage />} />

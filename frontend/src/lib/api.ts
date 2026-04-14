@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 
-const API_BASE = import.meta.env.VITE_API_URL as string
+const API_BASE = import.meta.env.VITE_API_URL
+if (!API_BASE) throw new Error('VITE_API_URL is not set — check your .env.local file.')
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const { data: { session } } = await supabase.auth.getSession()
@@ -18,6 +19,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail ?? 'Request failed')
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
