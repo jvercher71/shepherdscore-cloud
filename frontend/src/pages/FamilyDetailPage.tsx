@@ -93,7 +93,7 @@ export default function FamilyDetailPage() {
               <label style={{ textTransform: 'capitalize' }}>{f.replace('_', ' ')}</label>
               {editing
                 ? <input value={form[f]} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))} />
-                : <span>{(family as Record<string, string>)[f] || '—'}</span>}
+                : <span>{(family as unknown as Record<string, string>)[f] || '—'}</span>}
             </div>
           ))}
           <div className={`${styles.field} ${styles.fieldFull}`}>
