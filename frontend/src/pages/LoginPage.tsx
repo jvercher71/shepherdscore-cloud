@@ -6,7 +6,7 @@ import styles from './LoginPage.module.css'
 export default function LoginPage() {
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [mode, setMode] = useState<'login' | 'signup' | 'check-email'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -19,15 +19,45 @@ export default function LoginPage() {
     try {
       if (mode === 'login') {
         await signIn(email, password)
+        navigate('/')
       } else {
         await signUp(email, password)
+        setMode('check-email')
       }
-      navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      const msg = err instanceof Error ? err.message : 'Something went wrong'
+      if (msg.toLowerCase().includes('email not confirmed')) {
+        setMode('check-email')
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  if (mode === 'check-email') {
+    return (
+      <div className={styles.page}>
+        <div className={styles.card}>
+          <div className={styles.header}>
+            <h1 className={styles.title}>ShepherdsCore</h1>
+            <span className={styles.tag}>Cloud</span>
+          </div>
+          <p className={styles.subtitle}>Check your email</p>
+          <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
+            We sent a confirmation link to <strong>{email}</strong>.
+            Click it to activate your account, then come back here to sign in.
+          </p>
+          <button
+            className={styles.submitBtn}
+            onClick={() => { setMode('login'); setError('') }}
+          >
+            Back to Sign In
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

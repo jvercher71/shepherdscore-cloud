@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
+import OnboardingPage from './pages/OnboardingPage'
 import DashboardPage from './pages/DashboardPage'
 import MembersPage from './pages/MembersPage'
 import FamiliesPage from './pages/FamiliesPage'
@@ -16,6 +17,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>Loading…</div>
   if (!session) return <Navigate to="/login" replace />
+  if (!session.user?.app_metadata?.church_id) return <Navigate to="/onboard" replace />
   return <>{children}</>
 }
 
@@ -26,6 +28,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/onboard" element={session ? <OnboardingPage /> : <Navigate to="/login" replace />} />
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
         <Route path="members" element={<MembersPage />} />

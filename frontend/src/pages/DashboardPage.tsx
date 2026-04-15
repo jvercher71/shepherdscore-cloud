@@ -15,7 +15,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     api.get<Stats>('/dashboard/stats')
-      .then(setStats)
+      .then(data => { setStats(data); setError('') })
       .catch(e => setError(e.message))
   }, [])
 

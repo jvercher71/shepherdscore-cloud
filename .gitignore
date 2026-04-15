@@ -27,3 +27,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Claude Code
+.claude/
+
+# Dev auth workaround (never commit)
+frontend/public/auth-inject.html
