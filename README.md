@@ -10,8 +10,8 @@ SaaS church management platform — multi-tenant, cloud-hosted version of Shephe
 | Backend | FastAPI (Python 3.12) |
 | Database | Supabase (PostgreSQL + RLS) |
 | Auth | Supabase Auth |
-| AI | Groq API (Llama 3) |
-| Billing | Paddle |
+| AI | Groq API (Llama 3.3 70B) |
+| Billing | Stripe |
 | Frontend Hosting | Vercel |
 | Backend Hosting | Railway |
 
@@ -136,7 +136,7 @@ web: uvicorn main:app --host 0.0.0.0 --port $PORT
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS — keep secret) |
 | `SUPABASE_JWT_SECRET` | JWT secret from Supabase project settings |
 | `GROQ_API_KEY` | Groq API key for AI features |
-| `PADDLE_API_KEY` | Paddle API key for billing |
+| `STRIPE_SECRET_KEY` | Stripe secret key for billing |
 | `CORS_ORIGINS` | Comma-separated allowed origins |
 
 ### Frontend (`frontend/.env.local`)

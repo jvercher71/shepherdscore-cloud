@@ -11,6 +11,9 @@ import GivingPage from './pages/GivingPage'
 import EventsPage from './pages/EventsPage'
 import GroupsPage from './pages/GroupsPage'
 import ReportsPage from './pages/ReportsPage'
+import AIInsightsPage from './pages/AIInsightsPage'
+import CommDraftsPage from './pages/CommDraftsPage'
+import SermonPrepPage from './pages/SermonPrepPage'
 import SettingsPage from './pages/SettingsPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -38,6 +41,9 @@ function AppRoutes() {
         <Route path="events" element={<EventsPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="ai/insights" element={<AIInsightsPage />} />
+        <Route path="ai/comm-drafts" element={<CommDraftsPage />} />
+        <Route path="ai/sermon-prep" element={<SermonPrepPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

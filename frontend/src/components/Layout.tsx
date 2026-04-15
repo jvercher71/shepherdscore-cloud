@@ -10,6 +10,9 @@ const NAV_ITEMS = [
   { to: '/events', label: 'Events', icon: '📅' },
   { to: '/groups', label: 'Groups', icon: '🏘' },
   { to: '/reports', label: 'Reports', icon: '📊' },
+  { to: '/ai/insights', label: 'AI Insights', icon: '🧠' },
+  { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '✉' },
+  { to: '/ai/sermon-prep', label: 'AI Sermon Prep', icon: '📖' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 

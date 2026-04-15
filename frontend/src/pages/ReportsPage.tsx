@@ -22,10 +22,13 @@ export default function ReportsPage() {
   const [error, setError] = useState('')
   const [taxLetter, setTaxLetter] = useState<DonorTotal | null>(null)
   const [church, setChurch] = useState<ChurchSettings | null>(null)
+  const [aiSummary, setAiSummary] = useState('')
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
 
   const runMonthlyReport = async () => {
     setLoading(true)
     setError('')
+    setAiSummary('')
     try {
       const [giving, members] = await Promise.all([
         api.get<GivingReport[]>(`/reports/giving?year=${year}&month=${month}`),
@@ -37,6 +40,22 @@ export default function ReportsPage() {
       setError(e instanceof Error ? e.message : 'Failed to load report')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const generateAiSummary = async (reportType: string) => {
+    setAiSummaryLoading(true)
+    try {
+      const res = await api.post<{ summary: string }>('/ai/report-summary', {
+        report_type: reportType,
+        year,
+        month: reportType !== 'annual_giving' ? month : undefined,
+      })
+      setAiSummary(res.summary)
+    } catch (e) {
+      setAiSummary(e instanceof Error ? `Error: ${e.message}` : 'Failed to generate summary')
+    } finally {
+      setAiSummaryLoading(false)
     }
   }
 
@@ -122,7 +141,7 @@ export default function ReportsPage() {
       )}
 
       {memberData && (
-        <div className={styles.statsGrid} style={{ marginBottom: 32 }}>
+        <div className={styles.statsGrid} style={{ marginBottom: 24 }}>
           <div className={styles.statCard}>
             <div className={styles.statValue} style={{ color: '#0066CC' }}>{memberData.total}</div>
             <div className={styles.statLabel}>Total Members</div>
@@ -131,6 +150,34 @@ export default function ReportsPage() {
             <div className={styles.statValue} style={{ color: '#22C55E' }}>{memberData.added_this_month}</div>
             <div className={styles.statLabel}>Added in {MONTHS[month - 1]}</div>
           </div>
+        </div>
+      )}
+
+      {/* AI Summary for monthly reports */}
+      {(givingData.length > 0 || memberData) && (
+        <div style={{ marginBottom: 32 }}>
+          {!aiSummary && (
+            <button
+              className={styles.secondaryBtn}
+              onClick={() => generateAiSummary('monthly_giving')}
+              disabled={aiSummaryLoading}
+              style={{ marginBottom: 12 }}
+            >
+              {aiSummaryLoading ? 'AI is analyzing…' : 'Summarize with AI'}
+            </button>
+          )}
+          {aiSummary && (
+            <div style={{
+              background: 'linear-gradient(135deg, #f0f7ff 0%, #f8f9fa 100%)',
+              borderRadius: 12, padding: '20px 24px', borderLeft: '4px solid var(--color-accent)',
+              fontSize: 14, lineHeight: 1.7, color: 'var(--color-text)',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                AI Summary
+              </div>
+              {aiSummary}
+            </div>
+          )}
         </div>
       )}
 

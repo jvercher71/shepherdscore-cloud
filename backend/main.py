@@ -6,6 +6,7 @@ Multi-tenant church management API backed by Supabase (PostgreSQL + RLS)
 from contextlib import asynccontextmanager
 from typing import Annotated, Optional
 from datetime import datetime
+from collections import defaultdict
 
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Security, status
@@ -14,6 +15,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from supabase import create_client, Client
+from groq import Groq
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +26,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
     groq_api_key: str = ""
-    paddle_api_key: str = ""
+    stripe_secret_key: str = ""
     cors_origins: str = "http://localhost:5173"
 
     class Config:
@@ -33,6 +35,31 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Groq AI client
+# ---------------------------------------------------------------------------
+
+def get_groq() -> Groq:
+    if not settings.groq_api_key:
+        raise HTTPException(status_code=503, detail="AI features unavailable — GROQ_API_KEY not configured")
+    return Groq(api_key=settings.groq_api_key)
+
+
+def ai_chat(system_prompt: str, user_prompt: str, max_tokens: int = 2048) -> str:
+    """Send a chat completion to Groq (Llama 3) and return the text response."""
+    client = get_groq()
+    resp = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=max_tokens,
+        temperature=0.7,
+    )
+    return resp.choices[0].message.content or ""
 
 
 # ---------------------------------------------------------------------------
@@ -603,3 +630,271 @@ def update_settings(body: ChurchSettingsIn, auth: AuthDep, sb: DBDep):
     if not resp.data:
         raise HTTPException(status_code=404, detail="Church not found")
     return resp.data[0]
+
+
+# ---------------------------------------------------------------------------
+# AI — Pastoral Insights
+# ---------------------------------------------------------------------------
+
+@app.get("/ai/pastoral-insights")
+def pastoral_insights(auth: AuthDep, sb: DBDep):
+    """Analyze member engagement data and return AI-generated pastoral insights."""
+    cid = auth.church_id
+    today = datetime.utcnow().date()
+
+    # Gather all the data the AI needs to analyze
+    members = sb.table("members").select("id, first_name, last_name, email, family_id, created_at").eq("church_id", cid).execute().data
+    events = sb.table("events").select("id, name, date").eq("church_id", cid).order("date", desc=True).limit(30).execute().data
+    giving_90d = sb.table("giving").select("member_id, amount, date, category").eq("church_id", cid).gte("date", str(today.replace(day=1) if today.month > 3 else today.replace(year=today.year - 1, month=today.month + 9, day=1))).execute().data
+    groups = sb.table("groups").select("id, name").eq("church_id", cid).execute().data
+
+    # Attendance across recent events
+    event_ids = [e["id"] for e in events]
+    attendance_rows = []
+    for eid in event_ids[:20]:
+        rows = sb.table("event_attendance").select("member_id").eq("event_id", eid).execute().data
+        for r in rows:
+            attendance_rows.append({"event_id": eid, "member_id": r["member_id"]})
+
+    # Group memberships
+    group_membership = []
+    for g in groups:
+        rows = sb.table("group_members").select("member_id").eq("group_id", g["id"]).execute().data
+        for r in rows:
+            group_membership.append({"group_id": g["id"], "group_name": g["name"], "member_id": r["member_id"]})
+
+    # Build member lookup
+    member_map = {m["id"]: f"{m['first_name']} {m['last_name']}" for m in members}
+
+    # Build attendance per member
+    attendance_by_member: dict[str, int] = defaultdict(int)
+    for a in attendance_rows:
+        attendance_by_member[a["member_id"]] += 1
+
+    # Build giving per member
+    giving_by_member: dict[str, float] = defaultdict(float)
+    for g in giving_90d:
+        if g["member_id"]:
+            giving_by_member[g["member_id"]] += g["amount"]
+
+    # Members in groups
+    members_in_groups = set(gm["member_id"] for gm in group_membership)
+
+    # Build data summary for AI
+    data_summary = f"""Church data snapshot (as of {today.isoformat()}):
+
+Total members: {len(members)}
+Recent events (last 30): {len(events)}
+Total groups: {len(groups)}
+
+MEMBER ENGAGEMENT (last ~90 days):
+"""
+    for m in members:
+        mid = m["id"]
+        name = member_map[mid]
+        att_count = attendance_by_member.get(mid, 0)
+        give_total = giving_by_member.get(mid, 0)
+        in_group = mid in members_in_groups
+        joined = m["created_at"][:10] if m.get("created_at") else "unknown"
+        data_summary += f"- {name}: joined {joined}, attended {att_count}/{len(events[:20])} recent events, gave ${give_total:.0f} (90d), in a group: {'yes' if in_group else 'NO'}\n"
+
+    system_prompt = """You are a pastoral care AI assistant for a church management system.
+Analyze the member engagement data and provide actionable pastoral insights.
+Focus on:
+1. Members who may need outreach (declining attendance, stopped giving, not connected to any group)
+2. New members who haven't been integrated yet (no group, low attendance)
+3. Positive trends worth celebrating
+4. Specific, actionable recommendations for the pastoral team
+
+Format your response as JSON with this structure:
+{
+  "needs_attention": [{"name": "...", "reason": "...", "suggestion": "..."}],
+  "new_member_followup": [{"name": "...", "joined": "...", "status": "...", "suggestion": "..."}],
+  "positive_highlights": ["..."],
+  "recommendations": ["..."],
+  "summary": "A 2-3 sentence executive summary of the church's overall engagement health."
+}
+
+Be specific with names. Keep suggestions practical and pastoral in tone. If there are no members, still return valid JSON with empty arrays and a helpful summary."""
+
+    result = ai_chat(system_prompt, data_summary, max_tokens=3000)
+
+    # Try to parse as JSON, fall back to raw text
+    import json
+    try:
+        # Strip markdown code fences if present
+        cleaned = result.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            cleaned = cleaned.rsplit("```", 1)[0]
+        parsed = json.loads(cleaned)
+        return {"insights": parsed, "raw": None}
+    except (json.JSONDecodeError, IndexError):
+        return {"insights": None, "raw": result}
+
+
+# ---------------------------------------------------------------------------
+# AI — Report Summary
+# ---------------------------------------------------------------------------
+
+class ReportSummaryIn(BaseModel):
+    report_type: str  # "monthly_giving", "members", "annual_giving"
+    year: int
+    month: Optional[int] = None
+
+
+@app.post("/ai/report-summary")
+def ai_report_summary(body: ReportSummaryIn, auth: AuthDep, sb: DBDep):
+    """Generate a natural language summary of a report."""
+    cid = auth.church_id
+
+    if body.report_type == "monthly_giving":
+        if not body.month:
+            raise HTTPException(status_code=400, detail="month required for monthly_giving report")
+        start = f"{body.year}-{body.month:02d}-01"
+        end = f"{body.year + 1}-01-01" if body.month == 12 else f"{body.year}-{body.month + 1:02d}-01"
+        rows = sb.table("giving").select("category, amount").eq("church_id", cid).gte("date", start).lt("date", end).execute().data
+        agg: dict[str, dict] = {}
+        for r in rows:
+            cat = r["category"]
+            if cat not in agg:
+                agg[cat] = {"category": cat, "total": 0.0, "count": 0}
+            agg[cat]["total"] += r["amount"]
+            agg[cat]["count"] += 1
+        grand_total = sum(a["total"] for a in agg.values())
+
+        # Get previous month for comparison
+        prev_month = body.month - 1 if body.month > 1 else 12
+        prev_year = body.year if body.month > 1 else body.year - 1
+        prev_start = f"{prev_year}-{prev_month:02d}-01"
+        prev_end = start
+        prev_rows = sb.table("giving").select("amount").eq("church_id", cid).gte("date", prev_start).lt("date", prev_end).execute().data
+        prev_total = sum(r["amount"] for r in prev_rows)
+
+        data_text = f"""Monthly Giving Report — {body.year}-{body.month:02d}:
+Grand total: ${grand_total:.2f}
+Previous month total: ${prev_total:.2f}
+By category: {', '.join(f'{a["category"]}: ${a["total"]:.2f} ({a["count"]} transactions)' for a in sorted(agg.values(), key=lambda x: x["total"], reverse=True))}
+Total transactions: {sum(a["count"] for a in agg.values())}"""
+
+    elif body.report_type == "members":
+        if not body.month:
+            raise HTTPException(status_code=400, detail="month required for members report")
+        total = len(sb.table("members").select("id").eq("church_id", cid).execute().data)
+        month_start = f"{body.year}-{body.month:02d}-01"
+        month_end = f"{body.year + 1}-01-01" if body.month == 12 else f"{body.year}-{body.month + 1:02d}-01"
+        added = len(sb.table("members").select("id").eq("church_id", cid).gte("created_at", month_start).lt("created_at", month_end).execute().data)
+        data_text = f"""Member Report — {body.year}-{body.month:02d}:
+Total members: {total}
+New members this month: {added}"""
+
+    elif body.report_type == "annual_giving":
+        start = f"{body.year}-01-01"
+        end = f"{body.year + 1}-01-01"
+        rows = sb.table("giving").select("member_id, amount").eq("church_id", cid).gte("date", start).lt("date", end).execute().data
+        total = sum(r["amount"] for r in rows)
+        unique_donors = len(set(r["member_id"] for r in rows if r["member_id"]))
+        data_text = f"""Annual Giving Report — {body.year}:
+Total given: ${total:.2f}
+Unique donors: {unique_donors}
+Total transactions: {len(rows)}"""
+    else:
+        raise HTTPException(status_code=400, detail="Invalid report_type")
+
+    system_prompt = """You are a financial and membership analyst for a church.
+Given the report data, write a clear, concise natural language summary (3-5 sentences).
+Highlight trends, comparisons to prior periods when available, and note anything noteworthy.
+Keep it professional but warm — this is for church leadership.
+Do NOT use markdown formatting. Write plain text paragraphs."""
+
+    summary = ai_chat(system_prompt, data_text, max_tokens=500)
+    return {"summary": summary}
+
+
+# ---------------------------------------------------------------------------
+# AI — Communication Drafts
+# ---------------------------------------------------------------------------
+
+class CommDraftIn(BaseModel):
+    draft_type: str  # "announcement", "event_promo", "welcome_email", "thank_you", "newsletter"
+    context: str  # user-provided context or details
+    tone: str = "warm"  # "warm", "formal", "casual"
+
+
+@app.post("/ai/communication-draft")
+def ai_communication_draft(body: CommDraftIn, auth: AuthDep, sb: DBDep):
+    """Generate a communication draft (announcement, email, etc.)."""
+    # Get church info for personalization
+    church = sb.table("churches").select("name, pastor_name").eq("id", auth.church_id).single().execute().data
+
+    church_name = church.get("name", "Our Church") if church else "Our Church"
+    pastor_name = church.get("pastor_name", "") if church else ""
+
+    type_instructions = {
+        "announcement": "Write a church announcement suitable for a Sunday bulletin or website post.",
+        "event_promo": "Write a promotional message for a church event. Include a call to action.",
+        "welcome_email": "Write a warm welcome email for a new church member.",
+        "thank_you": "Write a thank you note for a church donor/volunteer.",
+        "newsletter": "Write a church newsletter section or update.",
+    }
+
+    instruction = type_instructions.get(body.draft_type, "Write a church communication.")
+
+    system_prompt = f"""You are a communications assistant for {church_name}.
+{instruction}
+Tone: {body.tone}
+Pastor/Leader name: {pastor_name or 'Church Leadership'}
+
+Write the complete draft ready to use. Include a subject line if it's an email.
+Do NOT use markdown formatting — write plain text that can be copied directly.
+Keep it concise but complete."""
+
+    draft = ai_chat(system_prompt, f"Details: {body.context}", max_tokens=1500)
+    return {"draft": draft, "draft_type": body.draft_type}
+
+
+# ---------------------------------------------------------------------------
+# AI — Sermon Prep
+# ---------------------------------------------------------------------------
+
+class SermonPrepIn(BaseModel):
+    topic: str = ""
+    scripture: str = ""
+    notes: str = ""
+    style: str = "expository"  # "expository", "topical", "narrative", "devotional"
+
+
+@app.post("/ai/sermon-prep")
+def ai_sermon_prep(body: SermonPrepIn, auth: AuthDep, sb: DBDep):
+    """Generate a sermon outline based on scripture, topic, and style."""
+    if not body.topic and not body.scripture:
+        raise HTTPException(status_code=400, detail="Provide at least a topic or scripture reference")
+
+    church = sb.table("churches").select("name").eq("id", auth.church_id).single().execute().data
+    church_name = church.get("name", "the church") if church else "the church"
+
+    user_prompt_parts = []
+    if body.scripture:
+        user_prompt_parts.append(f"Scripture passage: {body.scripture}")
+    if body.topic:
+        user_prompt_parts.append(f"Topic/Theme: {body.topic}")
+    if body.notes:
+        user_prompt_parts.append(f"Additional notes: {body.notes}")
+
+    system_prompt = f"""You are a sermon preparation assistant for {church_name}.
+Create a detailed sermon outline in the {body.style} style.
+
+Your outline should include:
+1. Title — a compelling sermon title
+2. Introduction — hook, context, and thesis statement
+3. Main Points (3-4) — each with sub-points, supporting scripture, and illustrations
+4. Application — practical takeaways for the congregation
+5. Conclusion — summary and call to action/response
+6. Discussion Questions — 3-4 questions for small groups
+
+Format as clean plain text with clear headings and indentation.
+Be theologically sound, practical, and applicable to modern church life.
+Include relevant cross-references to other scripture passages."""
+
+    outline = ai_chat(system_prompt, "\n".join(user_prompt_parts), max_tokens=3000)
+    return {"outline": outline, "style": body.style}
