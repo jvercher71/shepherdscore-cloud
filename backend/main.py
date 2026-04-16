@@ -701,7 +701,8 @@ def upload_church_logo(body: LogoUploadIn, auth: AuthDep, sb: DBDep):
         pass
     storage.upload(storage_path, logo_bytes, {"content-type": f"image/{ext}"})
 
-    public_url = storage.get_public_url(storage_path)
+    # Build public URL manually for reliability
+    public_url = f"{settings.supabase_url}/storage/v1/object/public/church-logos/{storage_path}?t={int(datetime.utcnow().timestamp())}"
     sb.table("churches").update({"logo_url": public_url}).eq("id", auth.church_id).execute()
     return {"logo_url": public_url}
 
@@ -917,7 +918,8 @@ def upload_member_photo(member_id: str, body: PhotoUploadIn, auth: AuthDep, sb: 
         pass
     storage.upload(storage_path, photo_bytes, {"content-type": f"image/{ext}"})
 
-    public_url = storage.get_public_url(storage_path)
+    # Build public URL manually for reliability
+    public_url = f"{settings.supabase_url}/storage/v1/object/public/member-photos/{storage_path}?t={int(datetime.utcnow().timestamp())}"
     sb_update(sb, "members", auth.church_id, member_id, {"photo_url": public_url})
     return {"photo_url": public_url}
 

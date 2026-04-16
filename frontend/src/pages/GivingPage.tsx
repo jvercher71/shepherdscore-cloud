@@ -47,6 +47,17 @@ export default function GivingPage() {
   const totalFiltered = filtered.reduce((s, r) => s + r.amount, 0)
   const totalAll = records.reduce((s, r) => s + r.amount, 0)
 
+  // Daily totals for the treasurer
+  const today = new Date().toISOString().slice(0, 10)
+  const todayRecords = records.filter(r => r.date === today)
+  const todayTotal = todayRecords.reduce((s, r) => s + r.amount, 0)
+
+  // Group filtered records by date for daily subtotals
+  const dailyTotals: Record<string, number> = {}
+  for (const r of filtered) {
+    dailyTotals[r.date] = (dailyTotals[r.date] || 0) + r.amount
+  }
+
   const memberName = (id: string | null) => {
     if (!id) return 'Anonymous'
     const m = members.find(m => m.id === id)
@@ -117,9 +128,13 @@ export default function GivingPage() {
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.statsGrid}>
+        <div className={styles.statCard} style={{ borderLeft: '4px solid #F59E0B' }}>
+          <div className={styles.statValue} style={{ color: '#F59E0B' }}>${todayTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div className={styles.statLabel}>Today's Total ({todayRecords.length} records)</div>
+        </div>
         <div className={styles.statCard}>
           <div className={styles.statValue} style={{ color: '#22C55E' }}>${totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-          <div className={styles.statLabel}>{filterMonth ? `Giving — ${new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'Total Giving'}</div>
+          <div className={styles.statLabel}>{filterMonth ? `${new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'Total Giving'}</div>
         </div>
         <div className={styles.statCard}>
           <div className={styles.statValue} style={{ color: '#0066CC' }}>{filtered.length}</div>
@@ -146,20 +161,54 @@ export default function GivingPage() {
           <tbody>
             {filtered.length === 0 ? (
               <tr><td colSpan={7} className={styles.emptyState}>No giving records found</td></tr>
-            ) : filtered.map(r => (
-              <tr key={r.id}>
-                <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
-                <td>{memberName(r.member_id)}</td>
-                <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.category}</span></td>
-                <td>{r.method || '—'}</td>
-                <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${r.amount.toFixed(2)}</td>
-                <td>{r.notes || '—'}</td>
-                <td>
-                  <button className={styles.editBtn} onClick={() => openEdit(r)}>Edit</button>
-                  <button className={styles.deleteBtn} onClick={() => setDeleteConfirm(r.id)}>Delete</button>
-                </td>
-              </tr>
-            ))}
+            ) : (() => {
+              const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date))
+              const rows: React.ReactNode[] = []
+              let lastDate = ''
+              for (const r of sorted) {
+                if (r.date !== lastDate) {
+                  if (lastDate && dailyTotals[lastDate]) {
+                    rows.push(
+                      <tr key={`total-${lastDate}`} style={{ background: 'rgba(245,158,11,0.06)' }}>
+                        <td colSpan={4} style={{ fontWeight: 700, fontSize: 12, color: '#F59E0B', textAlign: 'right' }}>
+                          Day Total:
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#F59E0B' }}>${dailyTotals[lastDate].toFixed(2)}</td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    )
+                  }
+                  lastDate = r.date
+                }
+                rows.push(
+                  <tr key={r.id}>
+                    <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
+                    <td>{memberName(r.member_id)}</td>
+                    <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.category}</span></td>
+                    <td>{r.method || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${r.amount.toFixed(2)}</td>
+                    <td>{r.notes || '—'}</td>
+                    <td>
+                      <button className={styles.editBtn} onClick={() => openEdit(r)}>Edit</button>
+                      <button className={styles.deleteBtn} onClick={() => setDeleteConfirm(r.id)}>Delete</button>
+                    </td>
+                  </tr>
+                )
+              }
+              // Final day total
+              if (lastDate && dailyTotals[lastDate]) {
+                rows.push(
+                  <tr key={`total-${lastDate}`} style={{ background: 'rgba(245,158,11,0.06)' }}>
+                    <td colSpan={4} style={{ fontWeight: 700, fontSize: 12, color: '#F59E0B', textAlign: 'right' }}>
+                      Day Total:
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#F59E0B' }}>${dailyTotals[lastDate].toFixed(2)}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                )
+              }
+              return rows
+            })()}
           </tbody>
         </table>
       </div>

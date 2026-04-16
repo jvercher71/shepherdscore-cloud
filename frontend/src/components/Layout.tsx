@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../lib/api'
 import styles from './Layout.module.css'
 
 const NAV_ITEMS = [
@@ -22,9 +24,16 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
+interface ChurchInfo { name?: string; logo_url?: string }
+
 export default function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const [church, setChurch] = useState<ChurchInfo>({})
+
+  useEffect(() => {
+    api.get<ChurchInfo>('/settings').then(setChurch).catch(() => {})
+  }, [])
 
   const handleSignOut = async () => {
     await signOut()
@@ -35,7 +44,10 @@ export default function Layout() {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.logo}>
-          <span className={styles.logoText}>ShepherdsCore</span>
+          {church.logo_url ? (
+            <img src={church.logo_url} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', marginBottom: 4 }} />
+          ) : null}
+          <span className={styles.logoText}>{church.name || 'ShepherdsCore'}</span>
           <span className={styles.logoTag}>Cloud</span>
         </div>
         <nav className={styles.nav}>
