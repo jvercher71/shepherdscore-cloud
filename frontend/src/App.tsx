@@ -19,6 +19,7 @@ import CommDraftsPage from './pages/CommDraftsPage'
 import SermonPrepPage from './pages/SermonPrepPage'
 import SmartSearchPage from './pages/SmartSearchPage'
 import HelpPage from './pages/HelpPage'
+import StaffPage from './pages/StaffPage'
 import SettingsPage from './pages/SettingsPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -53,6 +54,7 @@ function AppRoutes() {
         <Route path="ai/insights" element={<AIInsightsPage />} />
         <Route path="ai/comm-drafts" element={<CommDraftsPage />} />
         <Route path="ai/sermon-prep" element={<SermonPrepPage />} />
+        <Route path="staff" element={<StaffPage />} />
         <Route path="help" element={<HelpPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: '/ai/insights', label: 'AI Insights', icon: '🧠' },
   { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '✉' },
   { to: '/ai/sermon-prep', label: 'Sermon Prep', icon: '✝' },
+  { to: '/staff', label: 'Manage Staff', icon: '👤' },
   { to: '/help', label: 'Help', icon: '?' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]

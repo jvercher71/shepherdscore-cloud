@@ -88,6 +88,7 @@ class AuthContext(BaseModel):
     email: str
     church_id: str
     token: str
+    role: str = "Admin"
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -120,7 +121,22 @@ def verify_token(credentials: Annotated[HTTPAuthorizationCredentials, Security(b
             status_code=status.HTTP_403_FORBIDDEN,
             detail="church_id not found in token. Complete church onboarding first.",
         )
-    return AuthContext(user_id=user_id, email=email, church_id=church_id, token=token)
+
+    # Look up role from church_staff table (if exists)
+    role = "Admin"  # default for church creator
+    try:
+        db = make_db(token)
+        staff_row = db.table("church_staff").select("role, active").eq("church_id", church_id).eq("user_id", user_id).execute().data
+        if staff_row:
+            if not staff_row[0].get("active", True):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your account has been deactivated.")
+            role = staff_row[0].get("role", "Admin")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # table may not exist yet, default to Admin
+
+    return AuthContext(user_id=user_id, email=email, church_id=church_id, token=token, role=role)
 
 
 def get_db(auth: Annotated[AuthContext, Depends(verify_token)]) -> Client:
@@ -710,6 +726,100 @@ def request_password_reset(body: PasswordResetIn):
     )
     # Always return success to avoid email enumeration
     return {"message": "If an account exists with that email, a password reset link has been sent."}
+
+
+# ---------------------------------------------------------------------------
+# Staff / User Management
+# ---------------------------------------------------------------------------
+
+def _require_admin(auth: AuthContext):
+    if auth.role != "Admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+
+@app.get("/staff")
+def list_staff(auth: AuthDep, sb: DBDep):
+    """List all staff members for this church."""
+    return sb.table("church_staff").select("*").eq("church_id", auth.church_id).order("created_at").execute().data
+
+
+@app.get("/staff/me")
+def get_my_role(auth: AuthDep):
+    """Return the current user's role."""
+    return {"user_id": auth.user_id, "email": auth.email, "role": auth.role}
+
+
+class InviteStaffIn(BaseModel):
+    email: str
+    display_name: str
+    role: str = "Staff"  # Admin | Staff | View-Only
+
+
+@app.post("/staff/invite", status_code=201)
+def invite_staff(body: InviteStaffIn, auth: AuthDep, sb: DBDep):
+    """Invite a new staff member. They must already have a Supabase auth account
+    (signed up) with the same church_id — or the admin adds them manually."""
+    _require_admin(auth)
+
+    role = body.role.strip()
+    if role not in ("Admin", "Staff", "View-Only"):
+        raise HTTPException(status_code=400, detail="Invalid role. Use Admin, Staff, or View-Only")
+
+    # Check if already exists
+    existing = sb.table("church_staff").select("id").eq("church_id", auth.church_id).eq("email", body.email.strip().lower()).execute().data
+    if existing:
+        raise HTTPException(status_code=400, detail="This email is already on your staff list")
+
+    return sb_insert(sb, "church_staff", {
+        "church_id": auth.church_id,
+        "user_id": auth.user_id,  # placeholder — will be updated on their first login
+        "email": body.email.strip().lower(),
+        "display_name": body.display_name.strip(),
+        "role": role,
+        "active": True,
+    })
+
+
+class UpdateStaffIn(BaseModel):
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+    active: Optional[bool] = None
+
+
+@app.put("/staff/{staff_id}")
+def update_staff(staff_id: str, body: UpdateStaffIn, auth: AuthDep, sb: DBDep):
+    """Update a staff member's role, name, or active status. Admin only."""
+    _require_admin(auth)
+    data = body.model_dump(exclude_unset=True)
+    if "role" in data and data["role"] not in ("Admin", "Staff", "View-Only"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    return sb_update(sb, "church_staff", auth.church_id, staff_id, data)
+
+
+@app.delete("/staff/{staff_id}", status_code=204)
+def remove_staff(staff_id: str, auth: AuthDep, sb: DBDep):
+    """Remove a staff member. Admin only."""
+    _require_admin(auth)
+    sb_delete(sb, "church_staff", auth.church_id, staff_id)
+
+
+@app.post("/staff/setup-owner")
+def setup_owner(auth: AuthDep, sb: DBDep):
+    """Auto-create the church owner's staff record if it doesn't exist.
+    Called on first load to ensure the creator is registered as Admin."""
+    existing = sb.table("church_staff").select("id").eq("church_id", auth.church_id).eq("user_id", auth.user_id).execute().data
+    if existing:
+        return existing[0]
+    return sb_insert(sb, "church_staff", {
+        "church_id": auth.church_id,
+        "user_id": auth.user_id,
+        "email": auth.email,
+        "display_name": auth.email.split("@")[0],
+        "role": "Admin",
+        "active": True,
+    })
 
 
 # ---------------------------------------------------------------------------
