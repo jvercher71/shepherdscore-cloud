@@ -10,6 +10,15 @@ interface AttendanceRecord {
 const SERVICE_TYPES = ['Sunday Service', 'Wednesday Service', 'Bible Study', 'Youth Event', 'Special Event', 'Other']
 const EMPTY = { service_type: 'Sunday Service', date: new Date().toISOString().slice(0, 10), headcount: '', notes: '', event_id: null as string | null }
 
+const TYPE_COLORS: Record<string, string> = {
+  'Sunday Service': '#0066CC',
+  'Wednesday Service': '#8B5CF6',
+  'Bible Study': '#EC4899',
+  'Youth Event': '#F59E0B',
+  'Special Event': '#14B8A6',
+  'Other': '#6B7280',
+}
+
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [showModal, setShowModal] = useState(false)
@@ -18,6 +27,7 @@ export default function AttendancePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [filterType, setFilterType] = useState('All')
 
   const load = async () => {
     try { setRecords(await api.get<AttendanceRecord[]>('/attendance')) }
@@ -49,43 +59,108 @@ export default function AttendancePage() {
     await api.delete(`/attendance/${id}`).catch(e => setError(e.message)); await load()
   }
 
-  const totalThisMonth = records.filter(r => r.date.startsWith(new Date().toISOString().slice(0, 7))).reduce((s, r) => s + r.headcount, 0)
-  const avgHeadcount = records.length > 0 ? Math.round(records.reduce((s, r) => s + r.headcount, 0) / records.length) : 0
+  // Current month
+  const currentMonth = new Date().toISOString().slice(0, 7)
+  const thisMonthRecords = records.filter(r => r.date.startsWith(currentMonth))
+
+  // Per service type stats
+  const serviceTypes = [...new Set(records.map(r => r.service_type))].sort()
+
+  const typeStats = serviceTypes.map(type => {
+    const all = records.filter(r => r.service_type === type)
+    const month = thisMonthRecords.filter(r => r.service_type === type)
+    const monthTotal = month.reduce((s, r) => s + r.headcount, 0)
+    const avg = all.length > 0 ? Math.round(all.reduce((s, r) => s + r.headcount, 0) / all.length) : 0
+    return { type, count: all.length, monthTotal, monthCount: month.length, avg }
+  })
+
+  // Filtered records
+  const filtered = filterType === 'All' ? records : records.filter(r => r.service_type === filterType)
+
+  // Overall stats
+  const overallMonthTotal = thisMonthRecords.reduce((s, r) => s + r.headcount, 0)
+  const overallAvg = records.length > 0 ? Math.round(records.reduce((s, r) => s + r.headcount, 0) / records.length) : 0
 
   return (
     <div>
       <h1 className={styles.pageTitle}>Attendance</h1>
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.statsGrid}>
+      {/* Overall Stats */}
+      <div className={styles.statsGrid} style={{ marginBottom: 12 }}>
         <div className={styles.statCard}>
           <div className={styles.statValue} style={{ color: '#0066CC' }}>{records.length}</div>
           <div className={styles.statLabel}>Total Records</div>
         </div>
         <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#22C55E' }}>{totalThisMonth}</div>
-          <div className={styles.statLabel}>This Month (Total)</div>
+          <div className={styles.statValue} style={{ color: '#22C55E' }}>{overallMonthTotal}</div>
+          <div className={styles.statLabel}>This Month (All Services)</div>
         </div>
         <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#F59E0B' }}>{avgHeadcount}</div>
-          <div className={styles.statLabel}>Avg Headcount</div>
+          <div className={styles.statValue} style={{ color: '#F59E0B' }}>{overallAvg}</div>
+          <div className={styles.statLabel}>Overall Avg Headcount</div>
         </div>
       </div>
 
+      {/* Per Service Type Breakdown */}
+      {typeStats.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            By Service Type — This Month
+          </h2>
+          <div className={styles.statsGrid}>
+            {typeStats.map(s => (
+              <div key={s.type} className={styles.statCard} style={{ borderLeft: `4px solid ${TYPE_COLORS[s.type] || '#888'}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: TYPE_COLORS[s.type] || '#888', marginBottom: 8 }}>
+                  {s.type}
+                </div>
+                <div style={{ display: 'flex', gap: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text)' }}>{s.monthTotal}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>This Month ({s.monthCount})</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--color-text)' }}>{s.avg}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Avg Headcount</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Records Table */}
       <div className={styles.tableWrap}>
         <div className={styles.toolbar}>
           <span style={{ fontWeight: 600, fontSize: 15 }}>Attendance Records</span>
-          <button className={styles.addBtn} onClick={openAdd}>+ Record Attendance</button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <select value={filterType} onChange={e => setFilterType(e.target.value)}
+              style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
+              <option value="All">All Service Types</option>
+              {SERVICE_TYPES.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <button className={styles.addBtn} onClick={openAdd}>+ Record Attendance</button>
+          </div>
         </div>
         <table>
           <thead><tr><th>Date</th><th>Service Type</th><th>Headcount</th><th>Notes</th><th></th></tr></thead>
           <tbody>
-            {records.length === 0 ? (
+            {filtered.length === 0 ? (
               <tr><td colSpan={5} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No attendance records yet'}</td></tr>
-            ) : records.map(r => (
+            ) : filtered.map(r => (
               <tr key={r.id}>
                 <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
-                <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.service_type}</span></td>
+                <td>
+                  <span style={{
+                    display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                    fontSize: 11, fontWeight: 700,
+                    background: `${TYPE_COLORS[r.service_type] || '#888'}15`,
+                    color: TYPE_COLORS[r.service_type] || '#888',
+                  }}>
+                    {r.service_type}
+                  </span>
+                </td>
                 <td style={{ fontWeight: 700, fontSize: 16 }}>{r.headcount}</td>
                 <td>{r.notes || '—'}</td>
                 <td>
