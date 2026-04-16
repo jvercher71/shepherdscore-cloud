@@ -6,6 +6,8 @@ interface AuthContextValue {
   session: Session | null
   user: User | null
   loading: boolean
+  isPasswordRecovery: boolean
+  clearPasswordRecovery: () => void
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -17,6 +19,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -31,8 +34,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (mounted) setLoading(false)
       })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) setSession(session)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (mounted) {
+        setSession(session)
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true)
+        }
+      }
     })
 
     return () => {
@@ -40,6 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe()
     }
   }, [])
+
+  const clearPasswordRecovery = () => setIsPasswordRecovery(false)
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -61,7 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user ?? null, loading, signIn, signUp, signOut, refreshSession }}>
+    <AuthContext.Provider value={{
+      session, user: session?.user ?? null, loading,
+      isPasswordRecovery, clearPasswordRecovery,
+      signIn, signUp, signOut, refreshSession,
+    }}>
       {children}
     </AuthContext.Provider>
   )

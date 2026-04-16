@@ -21,6 +21,7 @@ import SmartSearchPage from './pages/SmartSearchPage'
 import HelpPage from './pages/HelpPage'
 import StaffPage from './pages/StaffPage'
 import BillingPage from './pages/BillingPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import SettingsPage from './pages/SettingsPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -32,8 +33,16 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { session, loading } = useAuth()
+  const { session, loading, isPasswordRecovery } = useAuth()
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>Loading…</div>
+
+  if (isPasswordRecovery && session) {
+    return (
+      <Routes>
+        <Route path="*" element={<ResetPasswordPage />} />
+      </Routes>
+    )
+  }
 
   return (
     <Routes>
