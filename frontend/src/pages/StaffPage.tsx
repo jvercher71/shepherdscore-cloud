@@ -57,7 +57,11 @@ export default function StaffPage() {
       setSuccess(`${inviteForm.display_name} has been added as ${inviteForm.role}`)
       setTimeout(() => setSuccess(''), 4000)
       await load()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Invite failed') }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Invite failed'
+      console.error('Staff invite error:', msg)
+      setError(msg)
+    }
     finally { setSaving(false) }
   }
 
@@ -221,8 +225,9 @@ export default function StaffPage() {
                 <input type="email" value={inviteForm.email} onChange={e => setInviteForm(p => ({ ...p, email: e.target.value }))} placeholder="staff@church.org" />
               </div>
             </div>
+            {error && <p className={styles.error} style={{ marginTop: 16 }}>{error}</p>}
             <div className={styles.modalActions}>
-              <button className={styles.cancelBtn} onClick={() => setShowInvite(false)}>Cancel</button>
+              <button className={styles.cancelBtn} onClick={() => { setShowInvite(false); setError('') }}>Cancel</button>
               <button className={styles.saveBtn} onClick={handleInvite} disabled={saving}>{saving ? 'Adding…' : 'Add to Team'}</button>
             </div>
           </div>
