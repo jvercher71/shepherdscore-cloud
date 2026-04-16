@@ -17,6 +17,8 @@ import DirectoryPage from './pages/DirectoryPage'
 import AIInsightsPage from './pages/AIInsightsPage'
 import CommDraftsPage from './pages/CommDraftsPage'
 import SermonPrepPage from './pages/SermonPrepPage'
+import SmartSearchPage from './pages/SmartSearchPage'
+import HelpPage from './pages/HelpPage'
 import SettingsPage from './pages/SettingsPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -37,6 +39,7 @@ function AppRoutes() {
       <Route path="/onboard" element={session ? <OnboardingPage /> : <Navigate to="/login" replace />} />
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<DashboardPage />} />
+        <Route path="smart-search" element={<SmartSearchPage />} />
         <Route path="members" element={<MembersPage />} />
         <Route path="families" element={<FamiliesPage />} />
         <Route path="families/:id" element={<FamilyDetailPage />} />
@@ -50,6 +53,7 @@ function AppRoutes() {
         <Route path="ai/insights" element={<AIInsightsPage />} />
         <Route path="ai/comm-drafts" element={<CommDraftsPage />} />
         <Route path="ai/sermon-prep" element={<SermonPrepPage />} />
+        <Route path="help" element={<HelpPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

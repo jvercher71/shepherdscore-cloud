@@ -639,6 +639,7 @@ class ChurchSettingsIn(BaseModel):
     email: str = ""
     website: str = ""
     pastor_name: str = ""
+    logo_url: str = ""
 
 
 @app.get("/settings")
@@ -655,6 +656,123 @@ def update_settings(body: ChurchSettingsIn, auth: AuthDep, sb: DBDep):
     if not resp.data:
         raise HTTPException(status_code=404, detail="Church not found")
     return resp.data[0]
+
+
+# ---------------------------------------------------------------------------
+# Church logo upload
+# ---------------------------------------------------------------------------
+
+class LogoUploadIn(BaseModel):
+    logo_base64: str
+    filename: str = "logo.png"
+
+
+@app.post("/settings/logo")
+def upload_church_logo(body: LogoUploadIn, auth: AuthDep, sb: DBDep):
+    """Upload church logo via base64 to Supabase Storage."""
+    raw = body.logo_base64
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    logo_bytes = base64.b64decode(raw)
+
+    ext = body.filename.rsplit(".", 1)[-1] if "." in body.filename else "png"
+    storage_path = f"{auth.church_id}/logo.{ext}"
+
+    storage = sb.storage.from_("church-logos")
+    try:
+        storage.remove([storage_path])
+    except Exception:
+        pass
+    storage.upload(storage_path, logo_bytes, {"content-type": f"image/{ext}"})
+
+    public_url = storage.get_public_url(storage_path)
+    sb.table("churches").update({"logo_url": public_url}).eq("id", auth.church_id).execute()
+    return {"logo_url": public_url}
+
+
+# ---------------------------------------------------------------------------
+# Password reset (via Supabase Auth)
+# ---------------------------------------------------------------------------
+
+class PasswordResetIn(BaseModel):
+    email: str
+
+
+@app.post("/auth/reset-password")
+def request_password_reset(body: PasswordResetIn):
+    """Send a password reset email via Supabase Auth."""
+    import httpx as _httpx
+    resp = _httpx.post(
+        f"{settings.supabase_url}/auth/v1/recover",
+        headers={"apikey": settings.supabase_anon_key, "Content-Type": "application/json"},
+        json={"email": body.email},
+        timeout=10.0,
+    )
+    # Always return success to avoid email enumeration
+    return {"message": "If an account exists with that email, a password reset link has been sent."}
+
+
+# ---------------------------------------------------------------------------
+# Smart Search (AI-powered cross-data search)
+# ---------------------------------------------------------------------------
+
+class SmartSearchIn(BaseModel):
+    query: str
+
+
+@app.post("/ai/smart-search")
+def ai_smart_search(body: SmartSearchIn, auth: AuthDep, sb: DBDep):
+    """Search across all church data using AI to understand intent."""
+    cid = auth.church_id
+    q = body.query.strip()
+    if not q:
+        return {"results": []}
+
+    # Gather data summaries for the AI
+    members = sb.table("members").select("id, first_name, last_name, preferred_name, email, phone, status").eq("church_id", cid).execute().data
+    giving = sb.table("giving").select("member_id, amount, category, date, method").eq("church_id", cid).order("date", desc=True).limit(50).execute().data
+    events = sb.table("events").select("id, name, date, event_type").eq("church_id", cid).order("date", desc=True).limit(20).execute().data
+    groups = sb.table("groups").select("id, name").eq("church_id", cid).execute().data
+
+    member_map = {m["id"]: f"{m.get('preferred_name') or m['first_name']} {m['last_name']}" for m in members}
+
+    data_context = f"""Church data available for searching:
+
+MEMBERS ({len(members)}):
+{chr(10).join(f"- {m.get('preferred_name') or m['first_name']} {m['last_name']} | {m.get('email','')} | {m.get('phone','')} | Status: {m.get('status','')}" for m in members[:50])}
+
+RECENT GIVING ({len(giving)} records):
+{chr(10).join(f"- {member_map.get(g['member_id'],'Anonymous')}: ${g['amount']} to {g['category']} on {g['date']} via {g.get('method','N/A')}" for g in giving[:30])}
+
+EVENTS ({len(events)}):
+{chr(10).join(f"- {e['name']} ({e.get('event_type','')}) on {e['date']}" for e in events[:20])}
+
+GROUPS ({len(groups)}):
+{chr(10).join(f"- {g['name']}" for g in groups)}
+"""
+
+    system_prompt = """You are a smart search assistant for a church management system.
+The user is searching across church data. Based on their query, find and return relevant results.
+
+Return JSON array of results, each with:
+{"category": "Member|Giving|Event|Group|Help", "title": "...", "subtitle": "...", "detail": "..."}
+
+For help queries (how to, what is, etc.), provide helpful instructions.
+Keep results relevant and concise. Max 10 results.
+Return ONLY the JSON array, no other text."""
+
+    result = ai_chat(system_prompt, f"Search query: {q}\n\nData:\n{data_context}", max_tokens=1500)
+
+    import json
+    try:
+        cleaned = result.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            cleaned = cleaned.rsplit("```", 1)[0]
+        parsed = json.loads(cleaned)
+        return {"results": parsed}
+    except (json.JSONDecodeError, IndexError):
+        return {"results": [{"category": "Search", "title": "Results", "subtitle": result[:200], "detail": ""}]}
 
 
 # ---------------------------------------------------------------------------

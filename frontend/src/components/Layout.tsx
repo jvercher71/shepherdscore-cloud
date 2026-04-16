@@ -4,6 +4,7 @@ import styles from './Layout.module.css'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '◻' },
+  { to: '/smart-search', label: 'Smart Search', icon: '🔍' },
   { to: '/members', label: 'Members', icon: '👥' },
   { to: '/families', label: 'Families', icon: '🏠' },
   { to: '/attendance', label: 'Attendance', icon: '📋' },
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { to: '/ai/insights', label: 'AI Insights', icon: '🧠' },
   { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '✉' },
   { to: '/ai/sermon-prep', label: 'Sermon Prep', icon: '✝' },
+  { to: '/help', label: 'Help', icon: '?' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
