@@ -29,6 +29,7 @@ export default function MembersPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
 
   const load = async () => {
     try {
@@ -73,6 +74,24 @@ export default function MembersPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this member?')) return
     await api.delete(`/members/${id}`).catch(e => setError(e.message)); await load()
+  }
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !editing) return
+    setUploading(true)
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const res = await api.post<{ photo_url: string }>(`/members/${editing.id}/photo`, {
+          member_id: editing.id, photo_base64: reader.result as string, filename: file.name,
+        })
+        setForm(p => ({ ...p, photo_url: res.photo_url }))
+        await load()
+      } catch (err) { setError(err instanceof Error ? err.message : 'Upload failed') }
+      finally { setUploading(false) }
+    }
+    reader.readAsDataURL(file)
   }
 
   return (
@@ -125,6 +144,21 @@ export default function MembersPage() {
         <div className={styles.modalOverlay}>
           <div className={styles.modal} style={{ maxWidth: 640 }}>
             <h2 className={styles.modalTitle}>{editing ? 'Edit Member' : 'Add Member'}</h2>
+            {editing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+                {form.photo_url ? (
+                  <img src={form.photo_url} alt="" style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--color-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700 }}>
+                    {(form.first_name[0] || '?').toUpperCase()}
+                  </div>
+                )}
+                <label className={styles.secondaryBtn} style={{ cursor: 'pointer', display: 'inline-block' }}>
+                  {uploading ? 'Uploading…' : 'Upload Photo'}
+                  <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} disabled={uploading} />
+                </label>
+              </div>
+            )}
             <div className={styles.formGrid}>
               <div className={styles.field}>
                 <label>First Name *</label>

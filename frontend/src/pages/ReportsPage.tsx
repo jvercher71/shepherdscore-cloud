@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 interface GivingReport { category: string; total: number; count: number }
 interface MemberReport { total: number; added_this_month: number }
 interface DonorTotal { member_id: string | null; first_name: string; last_name: string; total: number; transactions: number }
 interface ChurchSettings { name: string; address: string; pastor_name: string; email: string; phone: string; website: string }
+interface GivingDetail { member_name: string; amount: number; category: string; method: string; date: string; notes: string }
+interface DetailReport { records: GivingDetail[]; by_category: GivingReport[]; grand_total: number; record_count: number }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -14,77 +18,217 @@ const YEARS = [CURRENT_YEAR - 2, CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 
 export default function ReportsPage() {
   const [year, setYear] = useState(CURRENT_YEAR)
   const [month, setMonth] = useState(new Date().getMonth() + 1)
+  const [day, setDay] = useState('')
+  const [reportMode, setReportMode] = useState<'month' | 'day' | 'year'>('month')
   const [givingData, setGivingData] = useState<GivingReport[]>([])
   const [memberData, setMemberData] = useState<MemberReport | null>(null)
+  const [detailData, setDetailData] = useState<DetailReport | null>(null)
   const [annualDonors, setAnnualDonors] = useState<DonorTotal[]>([])
   const [loading, setLoading] = useState(false)
   const [annualLoading, setAnnualLoading] = useState(false)
   const [error, setError] = useState('')
-  const [taxLetter, setTaxLetter] = useState<DonorTotal | null>(null)
   const [church, setChurch] = useState<ChurchSettings | null>(null)
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
 
-  const runMonthlyReport = async () => {
-    setLoading(true)
-    setError('')
-    setAiSummary('')
+  const runReport = async () => {
+    setLoading(true); setError(''); setAiSummary('')
     try {
-      const [giving, members] = await Promise.all([
-        api.get<GivingReport[]>(`/reports/giving?year=${year}&month=${month}`),
-        api.get<MemberReport>(`/reports/members?year=${year}&month=${month}`),
-      ])
-      setGivingData(giving)
-      setMemberData(members)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load report')
-    } finally {
-      setLoading(false)
-    }
-  }
+      let url = `/reports/giving-detail?year=${year}`
+      if (reportMode === 'month' || reportMode === 'day') url += `&month=${month}`
+      if (reportMode === 'day' && day) url += `&day=${day}`
 
-  const generateAiSummary = async (reportType: string) => {
-    setAiSummaryLoading(true)
-    try {
-      const res = await api.post<{ summary: string }>('/ai/report-summary', {
-        report_type: reportType,
-        year,
-        month: reportType !== 'annual_giving' ? month : undefined,
-      })
-      setAiSummary(res.summary)
-    } catch (e) {
-      setAiSummary(e instanceof Error ? `Error: ${e.message}` : 'Failed to generate summary')
-    } finally {
-      setAiSummaryLoading(false)
-    }
+      const [detail, members] = await Promise.all([
+        api.get<DetailReport>(url),
+        reportMode !== 'year' ? api.get<MemberReport>(`/reports/members?year=${year}&month=${month}`) : Promise.resolve(null),
+      ])
+      setDetailData(detail)
+      setGivingData(detail.by_category)
+      setMemberData(members)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load report') }
+    finally { setLoading(false) }
   }
 
   const runAnnualReport = async () => {
-    setAnnualLoading(true)
-    setError('')
+    setAnnualLoading(true); setError('')
     try {
       const [donors, ch] = await Promise.all([
         api.get<DonorTotal[]>(`/reports/annual-giving?year=${year}`),
         api.get<ChurchSettings>('/settings'),
       ])
-      setAnnualDonors(donors)
-      setChurch(ch)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load annual report')
-    } finally {
-      setAnnualLoading(false)
-    }
+      setAnnualDonors(donors); setChurch(ch)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load annual report') }
+    finally { setAnnualLoading(false) }
+  }
+
+  const generateAiSummary = async () => {
+    setAiSummaryLoading(true)
+    try {
+      const res = await api.post<{ summary: string }>('/ai/report-summary', { report_type: 'monthly_giving', year, month })
+      setAiSummary(res.summary)
+    } catch (e) { setAiSummary(e instanceof Error ? `Error: ${e.message}` : 'Failed') }
+    finally { setAiSummaryLoading(false) }
   }
 
   const grandTotal = givingData.reduce((s, r) => s + r.total, 0)
   const annualTotal = annualDonors.reduce((s, d) => s + d.total, 0)
 
-  const printTaxLetter = (donor: DonorTotal) => {
-    setTaxLetter(donor)
+  const reportTitle = reportMode === 'day' && day
+    ? `${MONTHS[month - 1]} ${day}, ${year}`
+    : reportMode === 'year' ? `${year}` : `${MONTHS[month - 1]} ${year}`
+
+  // ── PDF Generation ──────────────────────────────────────────────────
+  const generateGivingPDF = () => {
+    const doc = new jsPDF()
+    const churchName = church?.name || 'Church'
+
+    // Header
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text(churchName, 105, 20, { align: 'center' })
+    doc.setFontSize(13)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Giving Report — ${reportTitle}`, 105, 28, { align: 'center' })
+    doc.setFontSize(9)
+    doc.setTextColor(128)
+    doc.text(`Generated ${new Date().toLocaleDateString()}`, 105, 34, { align: 'center' })
+    doc.setTextColor(0)
+
+    // Summary by category
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Summary by Category', 14, 46)
+
+    autoTable(doc, {
+      startY: 50,
+      head: [['Category', 'Transactions', 'Total']],
+      body: [
+        ...givingData.map(r => [r.category, String(r.count), `$${r.total.toFixed(2)}`]),
+        [{ content: 'Grand Total', styles: { fontStyle: 'bold' } }, '', { content: `$${grandTotal.toFixed(2)}`, styles: { fontStyle: 'bold' } }],
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [0, 102, 204], fontSize: 10 },
+      styles: { fontSize: 10 },
+    })
+
+    // Detail records
+    if (detailData && detailData.records.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const finalY = ((doc as any).lastAutoTable?.finalY as number) || 90
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Detail Records', 14, finalY + 14)
+
+      autoTable(doc, {
+        startY: finalY + 18,
+        head: [['Date', 'Member', 'Category', 'Method', 'Amount']],
+        body: detailData.records.map(r => [
+          r.date, r.member_name, r.category, r.method || '—', `$${r.amount.toFixed(2)}`
+        ]),
+        theme: 'striped',
+        headStyles: { fillColor: [0, 102, 204], fontSize: 9 },
+        styles: { fontSize: 9 },
+      })
+    }
+
+    doc.save(`giving-report-${reportTitle.replace(/[, ]+/g, '-')}.pdf`)
   }
 
-  const handlePrint = () => {
-    window.print()
+  const generateAnnualPDF = () => {
+    const doc = new jsPDF()
+    const churchName = church?.name || 'Church'
+
+    doc.setFontSize(18)
+    doc.setFont('helvetica', 'bold')
+    doc.text(churchName, 105, 20, { align: 'center' })
+    doc.setFontSize(13)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Annual Giving Summary — ${year}`, 105, 28, { align: 'center' })
+    doc.setFontSize(9)
+    doc.setTextColor(128)
+    doc.text(`Generated ${new Date().toLocaleDateString()}`, 105, 34, { align: 'center' })
+    doc.setTextColor(0)
+
+    autoTable(doc, {
+      startY: 44,
+      head: [['Name', 'Transactions', 'Total Given']],
+      body: [
+        ...annualDonors.map(d => [
+          d.last_name ? `${d.last_name}, ${d.first_name}` : d.first_name,
+          String(d.transactions),
+          `$${d.total.toFixed(2)}`,
+        ]),
+        [{ content: 'Grand Total', styles: { fontStyle: 'bold' } }, '', { content: `$${annualTotal.toFixed(2)}`, styles: { fontStyle: 'bold' } }],
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [0, 102, 204], fontSize: 10 },
+      styles: { fontSize: 10 },
+    })
+
+    doc.save(`annual-giving-${year}.pdf`)
+  }
+
+  const generateTaxLetterPDF = (donor: DonorTotal) => {
+    const doc = new jsPDF()
+    const ch = church
+
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
+    doc.text(ch?.name || 'Church', 14, 22)
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    if (ch?.address) doc.text(ch.address, 14, 28)
+    if (ch?.phone) doc.text(ch.phone, 14, 33)
+
+    doc.setFontSize(10)
+    doc.text(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), 14, 48)
+
+    doc.setFont('helvetica', 'bold')
+    doc.text(`${donor.first_name} ${donor.last_name}`, 14, 60)
+    doc.setFont('helvetica', 'normal')
+    doc.text('[Member Address]', 14, 66)
+
+    const body = [
+      `Dear ${donor.first_name},`,
+      '',
+      `Thank you for your generous contributions to ${ch?.name || 'our church'} during ${year}. This letter serves as your official tax receipt for contributions made during the calendar year.`,
+      '',
+      `Your total contributions for ${year}:`,
+    ]
+    let y = 80
+    doc.setFontSize(11)
+    for (const line of body) {
+      if (line) doc.text(line, 14, y, { maxWidth: 180 })
+      y += line ? 7 : 4
+    }
+
+    // Amount box
+    doc.setFillColor(248, 249, 250)
+    doc.rect(14, y, 180, 16, 'F')
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Total Contributions (${donor.transactions} transaction${donor.transactions !== 1 ? 's' : ''})`, 18, y + 10)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.text(`$${donor.total.toFixed(2)}`, 190, y + 10, { align: 'right' })
+    y += 24
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100)
+    doc.text('No goods or services were provided in exchange for these contributions. Please retain this letter for your tax records.', 14, y, { maxWidth: 180 })
+    y += 14
+
+    doc.setTextColor(0)
+    doc.setFontSize(11)
+    doc.text('Sincerely,', 14, y)
+    y += 8
+    doc.setFont('helvetica', 'bold')
+    doc.text(ch?.pastor_name || 'Church Leadership', 14, y)
+    y += 6
+    doc.setFont('helvetica', 'normal')
+    doc.text(ch?.name || '', 14, y)
+
+    doc.save(`tax-letter-${donor.first_name}-${donor.last_name}-${year}.pdf`)
   }
 
   return (
@@ -92,41 +236,58 @@ export default function ReportsPage() {
       <h1 className={styles.pageTitle}>Reports</h1>
       {error && <p className={styles.error}>{error}</p>}
 
-      {/* Monthly Report Controls */}
+      {/* Giving Report Controls */}
       <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-        <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Monthly Giving Report</h3>
+        <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Giving Report</h3>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className={styles.field} style={{ minWidth: 120 }}>
+            <label>Report By</label>
+            <select value={reportMode} onChange={e => setReportMode(e.target.value as 'month' | 'day' | 'year')}>
+              <option value="month">Month</option>
+              <option value="day">Specific Day</option>
+              <option value="year">Full Year</option>
+            </select>
+          </div>
+          <div className={styles.field} style={{ minWidth: 100 }}>
             <label>Year</label>
             <select value={year} onChange={e => setYear(Number(e.target.value))}>
               {YEARS.map(y => <option key={y}>{y}</option>)}
             </select>
           </div>
-          <div className={styles.field} style={{ minWidth: 140 }}>
-            <label>Month</label>
-            <select value={month} onChange={e => setMonth(Number(e.target.value))}>
-              {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-            </select>
-          </div>
-          <button className={styles.addBtn} onClick={runMonthlyReport} disabled={loading}>
+          {reportMode !== 'year' && (
+            <div className={styles.field} style={{ minWidth: 120 }}>
+              <label>Month</label>
+              <select value={month} onChange={e => setMonth(Number(e.target.value))}>
+                {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+              </select>
+            </div>
+          )}
+          {reportMode === 'day' && (
+            <div className={styles.field} style={{ minWidth: 80 }}>
+              <label>Day</label>
+              <input type="number" min="1" max="31" value={day} onChange={e => setDay(e.target.value)} placeholder="1-31" />
+            </div>
+          )}
+          <button className={styles.addBtn} onClick={runReport} disabled={loading}>
             {loading ? 'Loading…' : 'Run Report'}
           </button>
+          {givingData.length > 0 && (
+            <button className={styles.secondaryBtn} onClick={generateGivingPDF}>Download PDF</button>
+          )}
         </div>
       </div>
 
+      {/* Giving Results */}
       {givingData.length > 0 && (
         <>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-            Giving — {MONTHS[month - 1]} {year}
-          </h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Giving — {reportTitle}</h2>
           <div className={styles.tableWrap} style={{ marginBottom: 24 }}>
             <table>
               <thead><tr><th>Category</th><th>Transactions</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
               <tbody>
                 {givingData.map(r => (
                   <tr key={r.category}>
-                    <td>{r.category}</td>
-                    <td>{r.count}</td>
+                    <td>{r.category}</td><td>{r.count}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${r.total.toFixed(2)}</td>
                   </tr>
                 ))}
@@ -138,6 +299,28 @@ export default function ReportsPage() {
             </table>
           </div>
         </>
+      )}
+
+      {/* Detail records */}
+      {detailData && detailData.records.length > 0 && (
+        <div className={styles.tableWrap} style={{ marginBottom: 24 }}>
+          <div className={styles.toolbar}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Detail Records ({detailData.record_count})</span>
+          </div>
+          <table>
+            <thead><tr><th>Date</th><th>Member</th><th>Category</th><th>Method</th><th style={{ textAlign: 'right' }}>Amount</th></tr></thead>
+            <tbody>
+              {detailData.records.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.date}</td><td>{r.member_name}</td>
+                  <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.category}</span></td>
+                  <td>{r.method || '—'}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${r.amount.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {memberData && (
@@ -153,35 +336,24 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* AI Summary for monthly reports */}
-      {(givingData.length > 0 || memberData) && (
+      {/* AI Summary */}
+      {givingData.length > 0 && reportMode === 'month' && (
         <div style={{ marginBottom: 32 }}>
           {!aiSummary && (
-            <button
-              className={styles.secondaryBtn}
-              onClick={() => generateAiSummary('monthly_giving')}
-              disabled={aiSummaryLoading}
-              style={{ marginBottom: 12 }}
-            >
+            <button className={styles.secondaryBtn} onClick={generateAiSummary} disabled={aiSummaryLoading}>
               {aiSummaryLoading ? 'AI is analyzing…' : 'Summarize with AI'}
             </button>
           )}
           {aiSummary && (
-            <div style={{
-              background: 'linear-gradient(135deg, #f0f7ff 0%, #f8f9fa 100%)',
-              borderRadius: 12, padding: '20px 24px', borderLeft: '4px solid var(--color-accent)',
-              fontSize: 14, lineHeight: 1.7, color: 'var(--color-text)',
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                AI Summary
-              </div>
+            <div style={{ background: 'linear-gradient(135deg, #f0f7ff 0%, #f8f9fa 100%)', borderRadius: 12, padding: '20px 24px', borderLeft: '4px solid var(--color-accent)', fontSize: 14, lineHeight: 1.7 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Summary</div>
               {aiSummary}
             </div>
           )}
         </div>
       )}
 
-      {/* Annual Donor Report / Tax Letters */}
+      {/* Annual Report */}
       <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Annual Giving Summary & Tax Letters</h3>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -194,88 +366,33 @@ export default function ReportsPage() {
           <button className={styles.addBtn} onClick={runAnnualReport} disabled={annualLoading}>
             {annualLoading ? 'Loading…' : 'Generate Annual Report'}
           </button>
+          {annualDonors.length > 0 && (
+            <button className={styles.secondaryBtn} onClick={generateAnnualPDF}>Download PDF</button>
+          )}
         </div>
       </div>
 
       {annualDonors.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-            Donor Totals — {year}
-            <span style={{ fontSize: 13, fontWeight: 500, color: '#888', marginLeft: 12 }}>
-              {annualDonors.length} donors · ${annualTotal.toFixed(2)} total
-            </span>
-          </h2>
-          <div className={styles.tableWrap} style={{ marginBottom: 24 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Transactions</th>
-                  <th style={{ textAlign: 'right' }}>Total Given</th>
-                  <th>Tax Letter</th>
+        <div className={styles.tableWrap} style={{ marginBottom: 24 }}>
+          <div className={styles.toolbar}>
+            <span style={{ fontWeight: 600 }}>Donor Totals — {year}</span>
+            <span style={{ fontSize: 13, color: '#888' }}>{annualDonors.length} donors &middot; ${annualTotal.toFixed(2)} total</span>
+          </div>
+          <table>
+            <thead><tr><th>Name</th><th>Transactions</th><th style={{ textAlign: 'right' }}>Total Given</th><th>Tax Letter</th></tr></thead>
+            <tbody>
+              {annualDonors.map((d, i) => (
+                <tr key={d.member_id ?? 'anon-' + i}>
+                  <td style={{ fontWeight: 500 }}>{d.last_name ? `${d.last_name}, ${d.first_name}` : d.first_name}</td>
+                  <td>{d.transactions}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${d.total.toFixed(2)}</td>
+                  <td>
+                    {d.member_id && <button className={styles.editBtn} onClick={() => generateTaxLetterPDF(d)}>Download PDF</button>}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {annualDonors.map((d, i) => (
-                  <tr key={d.member_id ?? 'anon-' + i}>
-                    <td style={{ fontWeight: 500 }}>
-                      {d.last_name ? `${d.last_name}, ${d.first_name}` : d.first_name}
-                    </td>
-                    <td>{d.transactions}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${d.total.toFixed(2)}</td>
-                    <td>
-                      {d.member_id && (
-                        <button className={styles.editBtn} onClick={() => printTaxLetter(d)}>
-                          Generate Letter
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Tax Letter Modal */}
-      {taxLetter && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modal} style={{ maxWidth: 680 }}>
-            <div id="tax-letter-content" style={{ fontFamily: 'Georgia, serif', lineHeight: 1.7 }}>
-              <p style={{ marginBottom: 32 }}>{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p style={{ marginBottom: 4, fontWeight: 700 }}>
-                {taxLetter.first_name} {taxLetter.last_name}
-              </p>
-              <p style={{ marginBottom: 32, color: '#555' }}>[Member Address]</p>
-              <p style={{ marginBottom: 16 }}>Dear {taxLetter.first_name},</p>
-              <p style={{ marginBottom: 16 }}>
-                Thank you for your generous contributions to{' '}
-                <strong>{church?.name || 'our church'}</strong> during {year}.
-                This letter serves as your official tax receipt for contributions made during the calendar year.
-              </p>
-              <p style={{ marginBottom: 8 }}>Your total contributions for {year}:</p>
-              <div style={{
-                background: '#f8f9fa', borderRadius: 8, padding: '16px 20px',
-                marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-              }}>
-                <span>Total Contributions ({taxLetter.transactions} transaction{taxLetter.transactions !== 1 ? 's' : ''})</span>
-                <span style={{ fontWeight: 700, fontSize: 18, color: '#22C55E' }}>${taxLetter.total.toFixed(2)}</span>
-              </div>
-              <p style={{ marginBottom: 16, fontSize: 13, color: '#555' }}>
-                No goods or services were provided in exchange for these contributions.
-                Please retain this letter for your tax records.
-              </p>
-              <p style={{ marginBottom: 8 }}>Sincerely,</p>
-              <p style={{ fontWeight: 700 }}>{church?.pastor_name || 'Church Leadership'}</p>
-              <p>{church?.name || ''}</p>
-              {church?.address && <p style={{ color: '#555', fontSize: 13 }}>{church.address}</p>}
-            </div>
-            <div className={styles.modalActions} style={{ marginTop: 24 }}>
-              <button className={styles.cancelBtn} onClick={() => setTaxLetter(null)}>Close</button>
-              <button className={styles.saveBtn} onClick={handlePrint}>🖨 Print</button>
-            </div>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

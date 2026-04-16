@@ -6,108 +6,109 @@ interface GivingRecord {
   id: string; member_id: string | null; amount: number
   category: string; date: string; method: string; notes: string; created_at: string
 }
+interface Member { id: string; first_name: string; last_name: string; preferred_name: string }
 
-interface Member { id: string; first_name: string; last_name: string }
-
-const CATEGORIES = [
-  'Tithe', 'General Offering', 'Missions', 'Building Fund',
-  'Youth Ministry', 'Food Pantry', 'Special Event', 'Other'
-]
-
+const DEFAULT_CATEGORIES = ['Tithe', 'General Offering', 'Missions', 'Building Fund', 'Youth Ministry', 'Food Pantry', 'Special Event', 'Other']
 const METHODS = ['', 'Cash', 'Check', 'Online/EFT', 'Credit Card', 'Other']
 
-const EMPTY_FORM = {
-  member_id: '', amount: '', category: 'Tithe', method: '',
-  date: new Date().toISOString().slice(0, 10), notes: ''
-}
+interface Split { category: string; amount: string }
 
 export default function GivingPage() {
   const [records, setRecords] = useState<GivingRecord[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES)
   const [showModal, setShowModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  const [form, setForm] = useState({ ...EMPTY_FORM })
+  const [form, setForm] = useState({ member_id: '', amount: '', category: 'Tithe', method: '', date: new Date().toISOString().slice(0, 10), notes: '' })
+  const [splits, setSplits] = useState<Split[]>([])
+  const [useSplit, setUseSplit] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [newCat, setNewCat] = useState('')
 
   const load = async () => {
     const [g, m] = await Promise.all([
       api.get<GivingRecord[]>('/giving'),
       api.get<Member[]>('/members'),
     ])
-    setRecords(g)
-    setMembers(m)
+    setRecords(g); setMembers(m)
+    // Load custom categories
+    try {
+      const cats = await api.get<string[]>('/categories')
+      if (cats.length > 0) setCategories(cats)
+    } catch { /* use defaults */ }
   }
-
   useEffect(() => { load().catch(e => setError(e.message)) }, [])
 
-  const filtered = filterMonth
-    ? records.filter(r => r.date.slice(0, 7) === filterMonth)
-    : records
-
+  const filtered = filterMonth ? records.filter(r => r.date.slice(0, 7) === filterMonth) : records
   const totalFiltered = filtered.reduce((s, r) => s + r.amount, 0)
   const totalAll = records.reduce((s, r) => s + r.amount, 0)
 
   const memberName = (id: string | null) => {
     if (!id) return 'Anonymous'
     const m = members.find(m => m.id === id)
-    return m ? `${m.first_name} ${m.last_name}` : '—'
+    return m ? `${m.preferred_name || m.first_name} ${m.last_name}` : '—'
   }
 
   const openAdd = () => {
-    setEditId(null)
-    setForm({ ...EMPTY_FORM })
+    setEditId(null); setUseSplit(false); setSplits([])
+    setForm({ member_id: '', amount: '', category: 'Tithe', method: '', date: new Date().toISOString().slice(0, 10), notes: '' })
     setShowModal(true)
   }
-
   const openEdit = (r: GivingRecord) => {
-    setEditId(r.id)
-    setForm({
-      member_id: r.member_id ?? '',
-      amount: String(r.amount),
-      category: r.category,
-      method: r.method ?? '',
-      date: r.date.slice(0, 10),
-      notes: r.notes ?? '',
-    })
+    setEditId(r.id); setUseSplit(false); setSplits([])
+    setForm({ member_id: r.member_id ?? '', amount: String(r.amount), category: r.category, method: r.method ?? '', date: r.date.slice(0, 10), notes: r.notes ?? '' })
     setShowModal(true)
   }
 
   const handleSave = async () => {
-    setSaving(true)
-    setError('')
+    setSaving(true); setError('')
     try {
-      const payload = {
-        ...form,
-        amount: parseFloat(form.amount) || 0,
-        member_id: form.member_id || null,
-      }
-      if (editId) {
-        await api.put(`/giving/${editId}`, payload)
+      if (useSplit && splits.length > 0 && !editId) {
+        // Create separate giving records for each split
+        for (const s of splits) {
+          const amt = parseFloat(s.amount) || 0
+          if (amt <= 0) continue
+          await api.post('/giving', {
+            member_id: form.member_id || null, amount: amt, category: s.category,
+            method: form.method, date: form.date, notes: form.notes,
+          })
+        }
       } else {
-        await api.post('/giving', payload)
+        const payload = { ...form, amount: parseFloat(form.amount) || 0, member_id: form.member_id || null }
+        if (editId) { await api.put(`/giving/${editId}`, payload) }
+        else { await api.post('/giving', payload) }
       }
-      setShowModal(false)
-      setForm({ ...EMPTY_FORM })
-      setEditId(null)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed')
-    } finally {
-      setSaving(false)
-    }
+      setShowModal(false); setEditId(null); await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed') }
+    finally { setSaving(false) }
   }
 
   const handleDelete = async (id: string) => {
+    await api.delete(`/giving/${id}`).catch(e => setError(e.message))
+    setDeleteConfirm(null); await load()
+  }
+
+  const addSplit = () => setSplits(p => [...p, { category: categories[0] || 'Tithe', amount: '' }])
+  const removeSplit = (i: number) => setSplits(p => p.filter((_, idx) => idx !== i))
+  const updateSplit = (i: number, field: keyof Split, val: string) =>
+    setSplits(p => p.map((s, idx) => idx === i ? { ...s, [field]: val } : s))
+  const splitTotal = splits.reduce((s, sp) => s + (parseFloat(sp.amount) || 0), 0)
+
+  const addCategory = async () => {
+    if (!newCat.trim()) return
     try {
-      await api.delete(`/giving/${id}`)
-      setDeleteConfirm(null)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed')
-    }
+      await api.post('/categories', { name: newCat.trim() })
+      setCategories(p => [...p, newCat.trim()].sort())
+      setNewCat('')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+  }
+  const removeCategory = async (name: string) => {
+    await api.delete(`/categories/${encodeURIComponent(name)}`).catch(e => setError(e.message))
+    setCategories(p => p.filter(c => c !== name))
   }
 
   return (
@@ -117,12 +118,8 @@ export default function GivingPage() {
 
       <div className={styles.statsGrid}>
         <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#22C55E' }}>
-            ${totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-          </div>
-          <div className={styles.statLabel}>
-            {filterMonth ? `Giving — ${new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'Total Giving'}
-          </div>
+          <div className={styles.statValue} style={{ color: '#22C55E' }}>${totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div className={styles.statLabel}>{filterMonth ? `Giving — ${new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'Total Giving'}</div>
         </div>
         <div className={styles.statCard}>
           <div className={styles.statValue} style={{ color: '#0066CC' }}>{filtered.length}</div>
@@ -138,36 +135,24 @@ export default function GivingPage() {
         <div className={styles.toolbar}>
           <span style={{ fontWeight: 600, fontSize: 15 }}>Giving Records</span>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input
-              type="month"
-              value={filterMonth}
-              onChange={e => setFilterMonth(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14 }}
-            />
+            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14 }} />
             <button className={styles.secondaryBtn} onClick={() => setFilterMonth('')}>All Time</button>
+            <button className={styles.secondaryBtn} onClick={() => setShowCatModal(true)}>Manage Categories</button>
             <button className={styles.addBtn} onClick={openAdd}>+ Record Giving</button>
           </div>
         </div>
         <table>
-          <thead>
-            <tr>
-              <th>Date</th><th>Member</th><th>Category</th><th>Method</th>
-              <th style={{ textAlign: 'right' }}>Amount</th>
-              <th>Notes</th><th></th>
-            </tr>
-          </thead>
+          <thead><tr><th>Date</th><th>Member</th><th>Category</th><th>Method</th><th style={{ textAlign: 'right' }}>Amount</th><th>Notes</th><th></th></tr></thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className={styles.emptyState}>No giving records found</td></tr>
+              <tr><td colSpan={7} className={styles.emptyState}>No giving records found</td></tr>
             ) : filtered.map(r => (
               <tr key={r.id}>
                 <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
                 <td>{memberName(r.member_id)}</td>
                 <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.category}</span></td>
                 <td>{r.method || '—'}</td>
-                <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>
-                  ${r.amount.toFixed(2)}
-                </td>
+                <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${r.amount.toFixed(2)}</td>
                 <td>{r.notes || '—'}</td>
                 <td>
                   <button className={styles.editBtn} onClick={() => openEdit(r)}>Edit</button>
@@ -179,29 +164,17 @@ export default function GivingPage() {
         </table>
       </div>
 
+      {/* Add/Edit Modal */}
       {showModal && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modal}>
+          <div className={styles.modal} style={{ maxWidth: 580 }}>
             <h2 className={styles.modalTitle}>{editId ? 'Edit Giving Record' : 'Record Giving'}</h2>
             <div className={styles.formGrid}>
               <div className={styles.field}>
                 <label>Member (optional)</label>
                 <select value={form.member_id} onChange={e => setForm(p => ({ ...p, member_id: e.target.value }))}>
                   <option value="">Anonymous</option>
-                  {members.map(m => (
-                    <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.field}>
-                <label>Amount ($)</label>
-                <input type="number" min="0" step="0.01" value={form.amount}
-                  onChange={e => setForm(p => ({ ...p, amount: e.target.value }))} />
-              </div>
-              <div className={styles.field}>
-                <label>Category</label>
-                <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
-                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                  {members.map(m => <option key={m.id} value={m.id}>{m.preferred_name || m.first_name} {m.last_name}</option>)}
                 </select>
               </div>
               <div className={styles.field}>
@@ -214,16 +187,82 @@ export default function GivingPage() {
                 <label>Date</label>
                 <input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} />
               </div>
-              <div className={`${styles.field} ${styles.fieldFull}`}>
-                <label>Notes</label>
-                <input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+              {!editId && (
+                <div className={styles.field}>
+                  <label>&nbsp;</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, textTransform: 'none', letterSpacing: 0, color: 'var(--color-accent)' }}>
+                    <input type="checkbox" checked={useSplit} onChange={e => { setUseSplit(e.target.checked); if (e.target.checked && splits.length === 0) addSplit() }} />
+                    Split across categories
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {!useSplit && (
+              <div className={styles.formGrid} style={{ marginTop: 14 }}>
+                <div className={styles.field}>
+                  <label>Amount ($)</label>
+                  <input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(p => ({ ...p, amount: e.target.value }))} />
+                </div>
+                <div className={styles.field}>
+                  <label>Category</label>
+                  <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+                    {categories.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
               </div>
+            )}
+
+            {useSplit && (
+              <div style={{ marginTop: 14, padding: '16px', background: 'var(--color-bg)', borderRadius: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Split Breakdown</label>
+                  <button className={styles.secondaryBtn} onClick={addSplit} style={{ fontSize: 12, padding: '4px 10px' }}>+ Add Split</button>
+                </div>
+                {splits.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                    <select value={s.category} onChange={e => updateSplit(i, 'category', e.target.value)} style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1.5px solid var(--color-border)', fontSize: 13 }}>
+                      {categories.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <input type="number" min="0" step="0.01" value={s.amount} onChange={e => updateSplit(i, 'amount', e.target.value)} placeholder="$0.00" style={{ width: 100, padding: '8px 10px', borderRadius: 6, border: '1.5px solid var(--color-border)', fontSize: 13 }} />
+                    <button onClick={() => removeSplit(i)} style={{ background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: 16, fontWeight: 700 }}>x</button>
+                  </div>
+                ))}
+                <div style={{ textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#22C55E', marginTop: 8 }}>Total: ${splitTotal.toFixed(2)}</div>
+              </div>
+            )}
+
+            <div className={`${styles.field} ${styles.fieldFull}`} style={{ marginTop: 14 }}>
+              <label>Notes</label>
+              <input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
             </div>
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => { setShowModal(false); setEditId(null) }}>Cancel</button>
-              <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+              <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Management Modal */}
+      {showCatModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modal} style={{ maxWidth: 420 }}>
+            <h2 className={styles.modalTitle}>Manage Giving Categories</h2>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="New category name" onKeyDown={e => e.key === 'Enter' && addCategory()} style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--color-border)', fontSize: 14 }} />
+              <button className={styles.addBtn} onClick={addCategory}>Add</button>
+            </div>
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              {categories.map(c => (
+                <div key={c} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--color-border)' }}>
+                  <span style={{ fontSize: 14 }}>{c}</span>
+                  <button className={styles.deleteBtn} onClick={() => removeCategory(c)} style={{ fontSize: 11 }}>Remove</button>
+                </div>
+              ))}
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.saveBtn} onClick={() => setShowCatModal(false)}>Done</button>
             </div>
           </div>
         </div>

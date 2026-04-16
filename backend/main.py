@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Optional
 from datetime import datetime
 from collections import defaultdict
+import base64
+import uuid as uuid_mod
 
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Security, status
@@ -653,6 +655,115 @@ def update_settings(body: ChurchSettingsIn, auth: AuthDep, sb: DBDep):
     if not resp.data:
         raise HTTPException(status_code=404, detail="Church not found")
     return resp.data[0]
+
+
+# ---------------------------------------------------------------------------
+# Photo upload (base64 → Supabase Storage)
+# ---------------------------------------------------------------------------
+
+class PhotoUploadIn(BaseModel):
+    member_id: str
+    photo_base64: str  # data:image/...;base64,... or raw base64
+    filename: str = "photo.jpg"
+
+
+@app.post("/members/{member_id}/photo")
+def upload_member_photo(member_id: str, body: PhotoUploadIn, auth: AuthDep, sb: DBDep):
+    """Upload a member photo via base64, store in Supabase Storage, update photo_url."""
+    sb_get(sb, "members", auth.church_id, member_id)
+
+    # Strip data URL prefix if present
+    raw = body.photo_base64
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    photo_bytes = base64.b64decode(raw)
+
+    ext = body.filename.rsplit(".", 1)[-1] if "." in body.filename else "jpg"
+    storage_path = f"{auth.church_id}/{member_id}.{ext}"
+
+    # Upload to Supabase Storage bucket "member-photos"
+    storage = sb.storage.from_("member-photos")
+    try:
+        storage.remove([storage_path])
+    except Exception:
+        pass
+    storage.upload(storage_path, photo_bytes, {"content-type": f"image/{ext}"})
+
+    public_url = storage.get_public_url(storage_path)
+    sb_update(sb, "members", auth.church_id, member_id, {"photo_url": public_url})
+    return {"photo_url": public_url}
+
+
+# ---------------------------------------------------------------------------
+# Custom giving categories
+# ---------------------------------------------------------------------------
+
+class CategoryIn(BaseModel):
+    name: str
+
+
+@app.get("/categories")
+def list_categories(auth: AuthDep, sb: DBDep):
+    rows = sb_select(sb, "categories", auth.church_id)
+    return [r["name"] for r in sorted(rows, key=lambda x: x["name"])]
+
+
+@app.post("/categories", status_code=201)
+def create_category(body: CategoryIn, auth: AuthDep, sb: DBDep):
+    return sb_insert(sb, "categories", {"name": body.name.strip(), "church_id": auth.church_id})
+
+
+@app.delete("/categories/{name}", status_code=204)
+def delete_category(name: str, auth: AuthDep, sb: DBDep):
+    sb.table("categories").delete().eq("church_id", auth.church_id).eq("name", name).execute()
+
+
+# ---------------------------------------------------------------------------
+# Enhanced reports
+# ---------------------------------------------------------------------------
+
+@app.get("/reports/giving-detail")
+def report_giving_detail(auth: AuthDep, sb: DBDep, year: int, month: Optional[int] = None, day: Optional[int] = None):
+    """Giving detail report — filterable by year, month, or specific day."""
+    cid = auth.church_id
+
+    if day and month:
+        start = f"{year}-{month:02d}-{day:02d}"
+        end = f"{year}-{month:02d}-{day:02d}"
+        rows = sb.table("giving").select("member_id, amount, category, method, date, notes").eq("church_id", cid).eq("date", start).execute().data
+    elif month:
+        start = f"{year}-{month:02d}-01"
+        end = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
+        rows = sb.table("giving").select("member_id, amount, category, method, date, notes").eq("church_id", cid).gte("date", start).lt("date", end).execute().data
+    else:
+        start = f"{year}-01-01"
+        end = f"{year + 1}-01-01"
+        rows = sb.table("giving").select("member_id, amount, category, method, date, notes").eq("church_id", cid).gte("date", start).lt("date", end).execute().data
+
+    # Attach member names
+    member_rows = sb.table("members").select("id, first_name, last_name, preferred_name").eq("church_id", cid).execute().data
+    member_map = {m["id"]: f"{m.get('preferred_name') or m['first_name']} {m['last_name']}" for m in member_rows}
+
+    for r in rows:
+        r["member_name"] = member_map.get(r["member_id"], "Anonymous") if r["member_id"] else "Anonymous"
+
+    grand_total = sum(r["amount"] for r in rows)
+
+    # Aggregate by category
+    cat_agg: dict[str, dict] = {}
+    for r in rows:
+        cat = r["category"]
+        if cat not in cat_agg:
+            cat_agg[cat] = {"category": cat, "total": 0.0, "count": 0}
+        cat_agg[cat]["total"] += r["amount"]
+        cat_agg[cat]["count"] += 1
+
+    return {
+        "records": sorted(rows, key=lambda x: x["date"]),
+        "by_category": sorted(cat_agg.values(), key=lambda x: x["total"], reverse=True),
+        "grand_total": grand_total,
+        "record_count": len(rows),
+    }
 
 
 # ---------------------------------------------------------------------------
