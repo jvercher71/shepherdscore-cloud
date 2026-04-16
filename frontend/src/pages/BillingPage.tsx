@@ -35,13 +35,8 @@ export default function BillingPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const handleSubscribe = async () => {
-    setActionLoading(true); setError('')
-    try {
-      const res = await api.post<{ checkout_url: string }>('/billing/checkout', {})
-      if (res.checkout_url) window.location.href = res.checkout_url
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to start checkout') }
-    finally { setActionLoading(false) }
+  const handleSubscribe = () => {
+    window.open('https://buy.stripe.com/28EaEZ4I87SugkZb2z3Ru00', '_blank')
   }
 
   const handleManage = async () => {
@@ -119,9 +114,9 @@ export default function BillingPage() {
 
         <div style={{ display: 'flex', gap: 10 }}>
           {(status === 'trial' || status === 'canceled') && (
-            <button className={styles.saveBtn} onClick={handleSubscribe} disabled={actionLoading}
+            <button className={styles.saveBtn} onClick={handleSubscribe}
               style={{ padding: '12px 28px', fontSize: 15 }}>
-              {actionLoading ? 'Loading…' : 'Subscribe — $30/month'}
+              Subscribe — $30/month
             </button>
           )}
           {billing?.has_customer && (
