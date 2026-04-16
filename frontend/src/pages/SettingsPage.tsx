@@ -32,6 +32,7 @@ export default function SettingsPage() {
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setError('Image must be less than 5MB'); return }
     setUploading(true)
     const reader = new FileReader()
     reader.onload = async () => {

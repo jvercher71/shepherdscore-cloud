@@ -67,6 +67,9 @@ export default function MembersPage() {
   }
 
   const handleSave = async () => {
+    if (!form.first_name.trim() || !form.last_name.trim()) {
+      setError('First name and last name are required'); return
+    }
     setSaving(true)
     try {
       const data = { ...form, birthday: form.birthday || null, join_date: form.join_date || null }
@@ -87,6 +90,7 @@ export default function MembersPage() {
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, memberId: string) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setError('Image must be less than 5MB'); return }
     setUploading(true)
     const reader = new FileReader()
     reader.onload = async () => {

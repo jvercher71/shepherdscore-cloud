@@ -5,19 +5,23 @@ Multi-tenant church management API backed by Supabase (PostgreSQL + RLS)
 
 from contextlib import asynccontextmanager
 from typing import Annotated, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from collections import defaultdict
 import base64
-import uuid as uuid_mod
+import json
+import logging
 
 import httpx
-from fastapi import FastAPI, Depends, HTTPException, Security, status
+from fastapi import FastAPI, Depends, HTTPException, Security, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from supabase import create_client, Client
 from groq import Groq
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +137,9 @@ def verify_token(credentials: Annotated[HTTPAuthorizationCredentials, Security(b
             role = staff_row[0].get("role", "Admin")
     except HTTPException:
         raise
-    except Exception:
-        pass  # table may not exist yet, default to Admin
+    except Exception as e:
+        logger.warning(f"Failed to fetch staff role for {user_id}: {e}")
+        # table may not exist yet, default to Admin
 
     return AuthContext(user_id=user_id, email=email, church_id=church_id, token=token, role=role)
 
@@ -256,7 +261,7 @@ def dashboard_stats(auth: AuthDep, sb: DBDep):
 
     total_members = len(sb.table("members").select("id").eq("church_id", cid).execute().data)
 
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     month_start = today.replace(day=1).isoformat()
     giving_rows = sb.table("giving").select("amount").eq("church_id", cid).gte("date", month_start).execute().data
     total_giving_this_month = sum(r["amount"] for r in giving_rows)
@@ -279,21 +284,21 @@ def dashboard_stats(auth: AuthDep, sb: DBDep):
 # ---------------------------------------------------------------------------
 
 class MemberIn(BaseModel):
-    first_name: str
-    last_name: str
-    preferred_name: str = ""
-    email: str = ""
-    phone: str = ""
-    cell_phone: str = ""
-    address: str = ""
-    city: str = ""
-    state: str = ""
-    zip: str = ""
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    preferred_name: str = Field(default="", max_length=100)
+    email: str = Field(default="", max_length=255)
+    phone: str = Field(default="", max_length=30)
+    cell_phone: str = Field(default="", max_length=30)
+    address: str = Field(default="", max_length=500)
+    city: str = Field(default="", max_length=100)
+    state: str = Field(default="", max_length=50)
+    zip: str = Field(default="", max_length=20)
     birthday: Optional[str] = None
     join_date: Optional[str] = None
-    joined_by: str = ""
-    status: str = "Active"
-    notes: str = ""
+    joined_by: str = Field(default="", max_length=100)
+    status: str = Field(default="Active", max_length=50)
+    notes: str = Field(default="", max_length=5000)
     photo_url: str = ""
     family_id: Optional[str] = None
 
@@ -319,8 +324,8 @@ class MemberUpdateIn(BaseModel):
 
 
 @app.get("/members")
-def list_members(auth: AuthDep, sb: DBDep):
-    return sb_select(sb, "members", auth.church_id)
+def list_members(auth: AuthDep, sb: DBDep, skip: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000)):
+    return sb.table("members").select("*").eq("church_id", auth.church_id).range(skip, skip + limit - 1).execute().data
 
 
 @app.post("/members", status_code=201)
@@ -393,16 +398,16 @@ def delete_family(family_id: str, auth: AuthDep, sb: DBDep):
 
 class GivingIn(BaseModel):
     member_id: Optional[str] = None
-    amount: float
-    category: str = "General Offering"
+    amount: float = Field(ge=0)
+    category: str = Field(default="General Offering", max_length=100)
     date: str  # ISO date string YYYY-MM-DD
-    method: str = ""
-    notes: str = ""
+    method: str = Field(default="", max_length=50)
+    notes: str = Field(default="", max_length=1000)
 
 
 @app.get("/giving")
-def list_giving(auth: AuthDep, sb: DBDep):
-    return sb_select(sb, "giving", auth.church_id)
+def list_giving(auth: AuthDep, sb: DBDep, skip: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=2000)):
+    return sb.table("giving").select("*").eq("church_id", auth.church_id).order("date", desc=True).range(skip, skip + limit - 1).execute().data
 
 
 @app.post("/giving", status_code=201)
@@ -438,8 +443,8 @@ class EventIn(BaseModel):
 
 
 @app.get("/events")
-def list_events(auth: AuthDep, sb: DBDep):
-    return sb_select(sb, "events", auth.church_id)
+def list_events(auth: AuthDep, sb: DBDep, skip: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=1000)):
+    return sb.table("events").select("*").eq("church_id", auth.church_id).order("date", desc=True).range(skip, skip + limit - 1).execute().data
 
 
 @app.post("/events", status_code=201)
@@ -557,7 +562,7 @@ def remove_group_member(group_id: str, member_id: str, auth: AuthDep, sb: DBDep)
 # ---------------------------------------------------------------------------
 
 @app.get("/reports/giving")
-def report_giving(year: int, month: int, auth: AuthDep, sb: DBDep):
+def report_giving(year: int = Query(ge=1900, le=2100), month: int = Query(ge=1, le=12), auth: AuthContext = Depends(verify_token), sb: Client = Depends(get_db)):
     start = f"{year}-{month:02d}-01"
     # End: first day of next month
     if month == 12:
@@ -588,7 +593,7 @@ def report_giving(year: int, month: int, auth: AuthDep, sb: DBDep):
 
 
 @app.get("/reports/members")
-def report_members(year: int, month: int, auth: AuthDep, sb: DBDep):
+def report_members(year: int = Query(ge=1900, le=2100), month: int = Query(ge=1, le=12), auth: AuthContext = Depends(verify_token), sb: Client = Depends(get_db)):
     cid = auth.church_id
     total = len(sb.table("members").select("id").eq("church_id", cid).execute().data)
     month_start = f"{year}-{month:02d}-01"
@@ -689,9 +694,16 @@ def upload_church_logo(body: LogoUploadIn, auth: AuthDep, sb: DBDep):
     raw = body.logo_base64
     if "," in raw:
         raw = raw.split(",", 1)[1]
-    logo_bytes = base64.b64decode(raw)
+    try:
+        logo_bytes = base64.b64decode(raw, validate=True)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    if len(logo_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image must be less than 5MB")
 
-    ext = body.filename.rsplit(".", 1)[-1] if "." in body.filename else "png"
+    ext = body.filename.rsplit(".", 1)[-1].lower() if "." in body.filename else "png"
+    if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
+        raise HTTPException(status_code=400, detail="Invalid image type. Use JPG, PNG, GIF, or WEBP")
     storage_path = f"{auth.church_id}/logo.{ext}"
 
     content_type = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
@@ -718,9 +730,10 @@ def upload_church_logo(body: LogoUploadIn, auth: AuthDep, sb: DBDep):
         timeout=30.0,
     )
     if not resp.is_success:
-        raise HTTPException(status_code=500, detail=f"Logo upload failed: {resp.text}")
+        logger.error(f"Logo upload failed: {resp.status_code} {resp.text}")
+        raise HTTPException(status_code=500, detail="Logo upload failed. Please try again.")
 
-    public_url = f"{settings.supabase_url}/storage/v1/object/public/church-logos/{storage_path}?t={int(datetime.utcnow().timestamp())}"
+    public_url = f"{settings.supabase_url}/storage/v1/object/public/church-logos/{storage_path}?t={int(datetime.now(timezone.utc).timestamp())}"
     sb.table("churches").update({"logo_url": public_url}).eq("id", auth.church_id).execute()
     return {"logo_url": public_url}
 
@@ -736,8 +749,7 @@ class PasswordResetIn(BaseModel):
 @app.post("/auth/reset-password")
 def request_password_reset(body: PasswordResetIn):
     """Send a password reset email via Supabase Auth."""
-    import httpx as _httpx
-    resp = _httpx.post(
+    resp = httpx.post(
         f"{settings.supabase_url}/auth/v1/recover",
         headers={"apikey": settings.supabase_anon_key, "Content-Type": "application/json"},
         json={"email": body.email},
@@ -846,7 +858,7 @@ def setup_owner(auth: AuthDep, sb: DBDep):
 # ---------------------------------------------------------------------------
 
 class SmartSearchIn(BaseModel):
-    query: str
+    query: str = Field(max_length=500)
 
 
 @app.post("/ai/smart-search")
@@ -892,7 +904,6 @@ Return ONLY the JSON array, no other text."""
 
     result = ai_chat(system_prompt, f"Search query: {q}\n\nData:\n{data_context}", max_tokens=1500)
 
-    import json
     try:
         cleaned = result.strip()
         if cleaned.startswith("```"):
@@ -923,7 +934,12 @@ def upload_member_photo(member_id: str, body: PhotoUploadIn, auth: AuthDep, sb: 
     raw = body.photo_base64
     if "," in raw:
         raw = raw.split(",", 1)[1]
-    photo_bytes = base64.b64decode(raw)
+    try:
+        photo_bytes = base64.b64decode(raw, validate=True)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    if len(photo_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image must be less than 5MB")
 
     ext = body.filename.rsplit(".", 1)[-1].lower() if "." in body.filename else "jpg"
     if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
@@ -954,9 +970,10 @@ def upload_member_photo(member_id: str, body: PhotoUploadIn, auth: AuthDep, sb: 
         timeout=30.0,
     )
     if not resp.is_success:
-        raise HTTPException(status_code=500, detail=f"Storage upload failed: {resp.text}")
+        logger.error(f"Photo upload failed: {resp.status_code} {resp.text}")
+        raise HTTPException(status_code=500, detail="Photo upload failed. Please try again.")
 
-    public_url = f"{settings.supabase_url}/storage/v1/object/public/member-photos/{storage_path}?t={int(datetime.utcnow().timestamp())}"
+    public_url = f"{settings.supabase_url}/storage/v1/object/public/member-photos/{storage_path}?t={int(datetime.now(timezone.utc).timestamp())}"
     sb_update(sb, "members", auth.church_id, member_id, {"photo_url": public_url})
     return {"photo_url": public_url}
 
@@ -1041,7 +1058,7 @@ def report_giving_detail(auth: AuthDep, sb: DBDep, year: int, month: Optional[in
 def pastoral_insights(auth: AuthDep, sb: DBDep):
     """Analyze member engagement data and return AI-generated pastoral insights."""
     cid = auth.church_id
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
 
     # Gather all the data the AI needs to analyze
     members = sb.table("members").select("id, first_name, last_name, email, family_id, created_at").eq("church_id", cid).execute().data
@@ -1121,7 +1138,6 @@ Be specific with names. Keep suggestions practical and pastoral in tone. If ther
     result = ai_chat(system_prompt, data_summary, max_tokens=3000)
 
     # Try to parse as JSON, fall back to raw text
-    import json
     try:
         # Strip markdown code fences if present
         cleaned = result.strip()
@@ -1217,9 +1233,9 @@ Do NOT use markdown formatting. Write plain text paragraphs."""
 # ---------------------------------------------------------------------------
 
 class CommDraftIn(BaseModel):
-    draft_type: str  # "announcement", "event_promo", "welcome_email", "thank_you", "newsletter"
-    context: str  # user-provided context or details
-    tone: str = "warm"  # "warm", "formal", "casual"
+    draft_type: str = Field(max_length=50)
+    context: str = Field(max_length=2000)
+    tone: str = Field(default="warm", max_length=20)
 
 
 @app.post("/ai/communication-draft")

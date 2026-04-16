@@ -135,7 +135,10 @@ export default function LoginPage() {
           </div>
           <div className={styles.field}>
             <label htmlFor="password">Password</label>
-            <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+            <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'signup' ? 8 : undefined} />
+            {mode === 'signup' && password.length > 0 && password.length < 8 && (
+              <span style={{ fontSize: 11, color: 'var(--color-danger)', marginTop: 4 }}>Password must be at least 8 characters</span>
+            )}
           </div>
           {error && <p className={styles.error}>{error}</p>}
           <button type="submit" className={styles.submitBtn} disabled={loading}>

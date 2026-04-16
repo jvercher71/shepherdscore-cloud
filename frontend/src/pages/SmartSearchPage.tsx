@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
@@ -12,7 +13,14 @@ const CATEGORY_COLORS: Record<string, string> = {
   Pledge: '#14B8A6', Search: '#6B7280',
 }
 
+const CATEGORY_ROUTES: Record<string, string> = {
+  Member: '/members', Giving: '/giving', Event: '/events',
+  Group: '/groups', Help: '/help', 'Bible Study': '/bible-study',
+  Pledge: '/giving', Attendance: '/attendance',
+}
+
 export default function SmartSearchPage() {
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -66,11 +74,14 @@ export default function SmartSearchPage() {
       {results.length > 0 && (
         <div style={{ display: 'grid', gap: 12, maxWidth: 720 }}>
           {results.map((r, i) => (
-            <div key={i} style={{
+            <div key={i} onClick={() => { const route = CATEGORY_ROUTES[r.category]; if (route) navigate(route) }}
+              style={{
               background: 'var(--color-white)', borderRadius: 12, padding: '16px 20px',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-              borderLeft: `4px solid ${CATEGORY_COLORS[r.category] || '#888'}`,
-            }}>
+              boxShadow: '0 1px 4px rgba(0,0,0,0.06)', cursor: CATEGORY_ROUTES[r.category] ? 'pointer' : 'default',
+              borderLeft: `4px solid ${CATEGORY_COLORS[r.category] || '#888'}`, transition: 'box-shadow 0.15s',
+            }}
+              onMouseEnter={e => { if (CATEGORY_ROUTES[r.category]) e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.12)' }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                 <span style={{
                   fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
