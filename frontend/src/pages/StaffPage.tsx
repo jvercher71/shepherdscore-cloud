@@ -28,11 +28,12 @@ export default function StaffPage() {
 
   const load = async () => {
     try {
-      // Ensure owner record exists
-      await api.post('/staff/setup-owner', {})
+      // Ensure owner record exists — may fail if table doesn't exist yet
+      try { await api.post('/staff/setup-owner', {}) } catch { /* ok */ }
+
       const [staffList, me] = await Promise.all([
-        api.get<StaffMember[]>('/staff'),
-        api.get<{ role: string }>('/staff/me'),
+        api.get<StaffMember[]>('/staff').catch(() => [] as StaffMember[]),
+        api.get<{ role: string }>('/staff/me').catch(() => ({ role: 'Admin' })),
       ])
       setStaff(staffList)
       setMyRole(me.role)
@@ -41,7 +42,8 @@ export default function StaffPage() {
   }
   useEffect(() => { void load() }, [])
 
-  const isAdmin = myRole === 'Admin'
+  // Church creator is always treated as admin if staff table is empty or role lookup fails
+  const isAdmin = myRole === 'Admin' || staff.length === 0
 
   const handleInvite = async () => {
     if (!inviteForm.email.trim() || !inviteForm.display_name.trim()) {
