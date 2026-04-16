@@ -1014,7 +1014,7 @@ def send_giving_receipt(auth: AuthDep, sb: DBDep, member_id: str = Query(...), g
 def _get_stripe():
     if not settings.stripe_secret_key:
         raise HTTPException(status_code=503, detail="Billing not configured")
-    stripe_lib.api_key = settings.stripe_secret_key
+    stripe_lib.api_key = settings.stripe_secret_key.strip()
     return stripe_lib
 
 
