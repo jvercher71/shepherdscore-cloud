@@ -694,14 +694,32 @@ def upload_church_logo(body: LogoUploadIn, auth: AuthDep, sb: DBDep):
     ext = body.filename.rsplit(".", 1)[-1] if "." in body.filename else "png"
     storage_path = f"{auth.church_id}/logo.{ext}"
 
-    storage = sb.storage.from_("church-logos")
+    content_type = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
+
+    # Delete existing file first
     try:
-        storage.remove([storage_path])
+        httpx.delete(
+            f"{settings.supabase_url}/storage/v1/object/church-logos/{storage_path}",
+            headers={"Authorization": f"Bearer {auth.token}", "apikey": settings.supabase_anon_key},
+            timeout=10.0,
+        )
     except Exception:
         pass
-    storage.upload(storage_path, logo_bytes, {"content-type": f"image/{ext}"})
 
-    # Build public URL manually for reliability
+    resp = httpx.post(
+        f"{settings.supabase_url}/storage/v1/object/church-logos/{storage_path}",
+        headers={
+            "Authorization": f"Bearer {auth.token}",
+            "apikey": settings.supabase_anon_key,
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        },
+        content=logo_bytes,
+        timeout=30.0,
+    )
+    if not resp.is_success:
+        raise HTTPException(status_code=500, detail=f"Logo upload failed: {resp.text}")
+
     public_url = f"{settings.supabase_url}/storage/v1/object/public/church-logos/{storage_path}?t={int(datetime.utcnow().timestamp())}"
     sb.table("churches").update({"logo_url": public_url}).eq("id", auth.church_id).execute()
     return {"logo_url": public_url}
@@ -907,18 +925,37 @@ def upload_member_photo(member_id: str, body: PhotoUploadIn, auth: AuthDep, sb: 
         raw = raw.split(",", 1)[1]
     photo_bytes = base64.b64decode(raw)
 
-    ext = body.filename.rsplit(".", 1)[-1] if "." in body.filename else "jpg"
+    ext = body.filename.rsplit(".", 1)[-1].lower() if "." in body.filename else "jpg"
+    if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
+        ext = "jpg"
+    content_type = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
     storage_path = f"{auth.church_id}/{member_id}.{ext}"
 
-    # Upload to Supabase Storage bucket "member-photos"
-    storage = sb.storage.from_("member-photos")
+    # Upload via httpx for reliability
+    # Try to delete existing file first
     try:
-        storage.remove([storage_path])
+        httpx.delete(
+            f"{settings.supabase_url}/storage/v1/object/member-photos/{storage_path}",
+            headers={"Authorization": f"Bearer {auth.token}", "apikey": settings.supabase_anon_key},
+            timeout=10.0,
+        )
     except Exception:
         pass
-    storage.upload(storage_path, photo_bytes, {"content-type": f"image/{ext}"})
 
-    # Build public URL manually for reliability
+    resp = httpx.post(
+        f"{settings.supabase_url}/storage/v1/object/member-photos/{storage_path}",
+        headers={
+            "Authorization": f"Bearer {auth.token}",
+            "apikey": settings.supabase_anon_key,
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        },
+        content=photo_bytes,
+        timeout=30.0,
+    )
+    if not resp.is_success:
+        raise HTTPException(status_code=500, detail=f"Storage upload failed: {resp.text}")
+
     public_url = f"{settings.supabase_url}/storage/v1/object/public/member-photos/{storage_path}?t={int(datetime.utcnow().timestamp())}"
     sb_update(sb, "members", auth.church_id, member_id, {"photo_url": public_url})
     return {"photo_url": public_url}
