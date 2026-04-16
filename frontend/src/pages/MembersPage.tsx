@@ -162,7 +162,7 @@ export default function MembersPage() {
       <h1 className={styles.pageTitle}>Members</h1>
       {error && <p className={styles.error}>{error}</p>}
 
-      <div style={{ display: 'flex', gap: 24 }}>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
         {/* Member List */}
         <div style={{ flex: viewing ? '0 0 55%' : '1' }}>
           <div className={styles.tableWrap}>

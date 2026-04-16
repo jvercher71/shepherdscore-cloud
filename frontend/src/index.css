@@ -40,3 +40,36 @@ button {
 input, select, textarea {
   font-family: inherit;
 }
+
+/* Mobile: tighten inline-styled elements globally */
+@media (max-width: 768px) {
+  h2 { font-size: 15px !important; }
+  h3 { font-size: 13px !important; }
+
+  /* Tighten cards/sections that use inline padding */
+  [style*="padding: 24px"],
+  [style*="padding: 28px"],
+  [style*="padding: 32px"] {
+    padding: 14px !important;
+  }
+
+  [style*="padding: 20px 24px"],
+  [style*="padding: 24px 28px"],
+  [style*="padding: 28px 36px"],
+  [style*="padding: 32px 36px"] {
+    padding: 12px 14px !important;
+  }
+
+  /* Tighten gaps */
+  [style*="gap: 24px"] { gap: 12px !important; }
+  [style*="gap: 20px"] { gap: 10px !important; }
+  [style*="gap: 16px"] { gap: 8px !important; }
+
+  /* Smaller border radius on mobile */
+  [style*="borderRadius: 16px"] { border-radius: 10px !important; }
+  [style*="borderRadius: 12px"] { border-radius: 8px !important; }
+
+  /* Member profile panel: full width on mobile */
+  [style*="flex: 0 0 42%"] { flex: 1 1 100% !important; }
+  [style*="flex: 0 0 55%"] { flex: 1 1 100% !important; }
+}
