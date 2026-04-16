@@ -10,7 +10,10 @@ import FamilyDetailPage from './pages/FamilyDetailPage'
 import GivingPage from './pages/GivingPage'
 import EventsPage from './pages/EventsPage'
 import GroupsPage from './pages/GroupsPage'
+import AttendancePage from './pages/AttendancePage'
 import ReportsPage from './pages/ReportsPage'
+import BibleStudyPage from './pages/BibleStudyPage'
+import DirectoryPage from './pages/DirectoryPage'
 import AIInsightsPage from './pages/AIInsightsPage'
 import CommDraftsPage from './pages/CommDraftsPage'
 import SermonPrepPage from './pages/SermonPrepPage'
@@ -37,10 +40,13 @@ function AppRoutes() {
         <Route path="members" element={<MembersPage />} />
         <Route path="families" element={<FamiliesPage />} />
         <Route path="families/:id" element={<FamilyDetailPage />} />
+        <Route path="attendance" element={<AttendancePage />} />
         <Route path="giving" element={<GivingPage />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="groups" element={<GroupsPage />} />
+        <Route path="bible-study" element={<BibleStudyPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="directory" element={<DirectoryPage />} />
         <Route path="ai/insights" element={<AIInsightsPage />} />
         <Route path="ai/comm-drafts" element={<CommDraftsPage />} />
         <Route path="ai/sermon-prep" element={<SermonPrepPage />} />

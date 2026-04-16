@@ -3,13 +3,8 @@ import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
 interface GivingRecord {
-  id: string
-  member_id: string | null
-  amount: number
-  category: string
-  date: string
-  notes: string
-  created_at: string
+  id: string; member_id: string | null; amount: number
+  category: string; date: string; method: string; notes: string; created_at: string
 }
 
 interface Member { id: string; first_name: string; last_name: string }
@@ -19,8 +14,10 @@ const CATEGORIES = [
   'Youth Ministry', 'Food Pantry', 'Special Event', 'Other'
 ]
 
+const METHODS = ['', 'Cash', 'Check', 'Online/EFT', 'Credit Card', 'Other']
+
 const EMPTY_FORM = {
-  member_id: '', amount: '', category: 'Tithe',
+  member_id: '', amount: '', category: 'Tithe', method: '',
   date: new Date().toISOString().slice(0, 10), notes: ''
 }
 
@@ -71,6 +68,7 @@ export default function GivingPage() {
       member_id: r.member_id ?? '',
       amount: String(r.amount),
       category: r.category,
+      method: r.method ?? '',
       date: r.date.slice(0, 10),
       notes: r.notes ?? '',
     })
@@ -153,7 +151,7 @@ export default function GivingPage() {
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Member</th><th>Category</th>
+              <th>Date</th><th>Member</th><th>Category</th><th>Method</th>
               <th style={{ textAlign: 'right' }}>Amount</th>
               <th>Notes</th><th></th>
             </tr>
@@ -166,6 +164,7 @@ export default function GivingPage() {
                 <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
                 <td>{memberName(r.member_id)}</td>
                 <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.category}</span></td>
+                <td>{r.method || '—'}</td>
                 <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>
                   ${r.amount.toFixed(2)}
                 </td>
@@ -203,6 +202,12 @@ export default function GivingPage() {
                 <label>Category</label>
                 <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
                   {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className={styles.field}>
+                <label>Method</label>
+                <select value={form.method} onChange={e => setForm(p => ({ ...p, method: e.target.value }))}>
+                  {METHODS.map(m => <option key={m} value={m}>{m || '— Select —'}</option>)}
                 </select>
               </div>
               <div className={styles.field}>

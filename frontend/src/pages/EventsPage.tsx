@@ -3,16 +3,14 @@ import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
 interface Event {
-  id: string
-  name: string
-  date: string
-  description: string
-  created_at: string
+  id: string; name: string; date: string; event_time: string
+  event_type: string; description: string; created_at: string
 }
 
 interface Member { id: string; first_name: string; last_name: string }
 
-const EMPTY = { name: '', date: new Date().toISOString().slice(0, 10), description: '' }
+const EVENT_TYPES = ['Sunday Service', 'Wednesday Service', 'Bible Study', 'Youth Event', 'Special Event', 'Meeting', 'Outreach', 'Other']
+const EMPTY = { name: '', date: new Date().toISOString().slice(0, 10), event_time: '', event_type: 'Sunday Service', description: '' }
 
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([])
@@ -48,7 +46,7 @@ export default function EventsPage() {
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true) }
   const openEdit = (ev: Event) => {
     setEditing(ev)
-    setForm({ name: ev.name, date: ev.date.slice(0, 10), description: ev.description })
+    setForm({ name: ev.name, date: ev.date.slice(0, 10), event_time: ev.event_time || '', event_type: ev.event_type || 'Sunday Service', description: ev.description })
     setShowModal(true)
   }
 
@@ -139,20 +137,21 @@ export default function EventsPage() {
         </div>
         <table>
           <thead>
-            <tr><th>Event</th><th>Date</th><th>Description</th><th>Attendance</th><th></th></tr>
+            <tr><th>Event</th><th>Type</th><th>Date</th><th>Time</th><th>Attendance</th><th></th></tr>
           </thead>
           <tbody>
             {events.length === 0 ? (
-              <tr><td colSpan={5} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No events yet'}</td></tr>
+              <tr><td colSpan={6} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No events yet'}</td></tr>
             ) : events.map(ev => (
               <tr key={ev.id}>
                 <td style={{ fontWeight: 600 }}>{ev.name}</td>
+                <td><span className={styles.badge} style={{ background: 'rgba(0,102,204,0.1)', color: '#0052a3' }}>{ev.event_type || '—'}</span></td>
                 <td>
                   <span className={`${styles.badge} ${new Date(ev.date + 'T12:00:00') >= new Date() ? styles.badgeGreen : styles.badgeBlue}`}>
                     {new Date(ev.date + 'T12:00:00').toLocaleDateString()}
                   </span>
                 </td>
-                <td>{ev.description || '—'}</td>
+                <td>{ev.event_time || '—'}</td>
                 <td>
                   <button className={styles.editBtn} onClick={() => openAttendance(ev)}>
                     Take Attendance
@@ -181,6 +180,16 @@ export default function EventsPage() {
               <div className={styles.field}>
                 <label>Date</label>
                 <input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div className={styles.field}>
+                <label>Time</label>
+                <input type="time" value={form.event_time} onChange={e => setForm(p => ({ ...p, event_time: e.target.value }))} />
+              </div>
+              <div className={styles.field}>
+                <label>Event Type</label>
+                <select value={form.event_type} onChange={e => setForm(p => ({ ...p, event_type: e.target.value }))}>
+                  {EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
+                </select>
               </div>
               <div className={`${styles.field} ${styles.fieldFull}`}>
                 <label>Description</label>

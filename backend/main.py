@@ -263,9 +263,19 @@ def dashboard_stats(auth: AuthDep, sb: DBDep):
 class MemberIn(BaseModel):
     first_name: str
     last_name: str
+    preferred_name: str = ""
     email: str = ""
     phone: str = ""
+    cell_phone: str = ""
     address: str = ""
+    city: str = ""
+    state: str = ""
+    zip: str = ""
+    birthday: Optional[str] = None
+    join_date: Optional[str] = None
+    joined_by: str = ""
+    status: str = "Active"
+    notes: str = ""
     photo_url: str = ""
     family_id: Optional[str] = None
 
@@ -273,9 +283,19 @@ class MemberIn(BaseModel):
 class MemberUpdateIn(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    preferred_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    cell_phone: Optional[str] = None
     address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    birthday: Optional[str] = None
+    join_date: Optional[str] = None
+    joined_by: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
     photo_url: Optional[str] = None
     family_id: Optional[str] = None
 
@@ -358,6 +378,7 @@ class GivingIn(BaseModel):
     amount: float
     category: str = "General Offering"
     date: str  # ISO date string YYYY-MM-DD
+    method: str = ""
     notes: str = ""
 
 
@@ -393,6 +414,8 @@ def delete_giving(record_id: str, auth: AuthDep, sb: DBDep):
 class EventIn(BaseModel):
     name: str
     date: str  # ISO date
+    event_time: str = ""
+    event_type: str = "Sunday Service"
     description: str = ""
 
 
@@ -898,3 +921,157 @@ Include relevant cross-references to other scripture passages."""
 
     outline = ai_chat(system_prompt, "\n".join(user_prompt_parts), max_tokens=3000)
     return {"outline": outline, "style": body.style}
+
+
+# ---------------------------------------------------------------------------
+# Standalone Attendance (headcount-based, like desktop app)
+# ---------------------------------------------------------------------------
+
+class StandaloneAttendanceIn(BaseModel):
+    service_type: str = "Sunday Service"
+    date: str  # ISO date
+    headcount: int = 0
+    notes: str = ""
+    event_id: Optional[str] = None
+
+
+@app.get("/attendance")
+def list_attendance_records(auth: AuthDep, sb: DBDep):
+    return sb.table("attendance").select("*").eq("church_id", auth.church_id).order("date", desc=True).execute().data
+
+
+@app.post("/attendance", status_code=201)
+def create_attendance_record(body: StandaloneAttendanceIn, auth: AuthDep, sb: DBDep):
+    return sb_insert(sb, "attendance", {**body.model_dump(), "church_id": auth.church_id})
+
+
+@app.put("/attendance/{record_id}")
+def update_attendance_record(record_id: str, body: StandaloneAttendanceIn, auth: AuthDep, sb: DBDep):
+    return sb_update(sb, "attendance", auth.church_id, record_id, body.model_dump())
+
+
+@app.delete("/attendance/{record_id}", status_code=204)
+def delete_attendance_record(record_id: str, auth: AuthDep, sb: DBDep):
+    sb_delete(sb, "attendance", auth.church_id, record_id)
+
+
+# ---------------------------------------------------------------------------
+# Bible Study Groups
+# ---------------------------------------------------------------------------
+
+class BibleStudyGroupIn(BaseModel):
+    name: str
+    description: str = ""
+    meeting_day: str = ""
+    meeting_time: str = ""
+    location: str = ""
+    teacher_id: Optional[str] = None
+
+
+@app.get("/bible-study")
+def list_bible_study_groups(auth: AuthDep, sb: DBDep):
+    rows = sb_select(sb, "bible_study_groups", auth.church_id)
+    for row in rows:
+        count_resp = sb.table("bible_study_members").select("id", count="exact").eq("group_id", row["id"]).execute()
+        row["member_count"] = count_resp.count or 0
+        if row.get("teacher_id"):
+            teacher = sb.table("members").select("first_name, last_name, preferred_name").eq("id", row["teacher_id"]).execute().data
+            if teacher:
+                t = teacher[0]
+                row["teacher_name"] = f"{t.get('preferred_name') or t['first_name']} {t['last_name']}"
+            else:
+                row["teacher_name"] = ""
+        else:
+            row["teacher_name"] = ""
+    return rows
+
+
+@app.post("/bible-study", status_code=201)
+def create_bible_study_group(body: BibleStudyGroupIn, auth: AuthDep, sb: DBDep):
+    return sb_insert(sb, "bible_study_groups", {**body.model_dump(), "church_id": auth.church_id})
+
+
+@app.get("/bible-study/{group_id}")
+def get_bible_study_group(group_id: str, auth: AuthDep, sb: DBDep):
+    return sb_get(sb, "bible_study_groups", auth.church_id, group_id)
+
+
+@app.put("/bible-study/{group_id}")
+def update_bible_study_group(group_id: str, body: BibleStudyGroupIn, auth: AuthDep, sb: DBDep):
+    return sb_update(sb, "bible_study_groups", auth.church_id, group_id, body.model_dump())
+
+
+@app.delete("/bible-study/{group_id}", status_code=204)
+def delete_bible_study_group(group_id: str, auth: AuthDep, sb: DBDep):
+    sb_delete(sb, "bible_study_groups", auth.church_id, group_id)
+
+
+# Bible study group members
+@app.get("/bible-study/{group_id}/members")
+def list_bible_study_members(group_id: str, auth: AuthDep, sb: DBDep):
+    sb_get(sb, "bible_study_groups", auth.church_id, group_id)
+    rows = sb.table("bible_study_members").select("member_id").eq("group_id", group_id).execute().data
+    return [r["member_id"] for r in rows]
+
+
+@app.post("/bible-study/{group_id}/members", status_code=201)
+def add_bible_study_member(group_id: str, body: GroupMemberIn, auth: AuthDep, sb: DBDep):
+    sb_get(sb, "bible_study_groups", auth.church_id, group_id)
+    return sb_insert(sb, "bible_study_members", {"group_id": group_id, "member_id": body.member_id})
+
+
+@app.delete("/bible-study/{group_id}/members/{member_id}", status_code=204)
+def remove_bible_study_member(group_id: str, member_id: str, auth: AuthDep, sb: DBDep):
+    sb_get(sb, "bible_study_groups", auth.church_id, group_id)
+    sb.table("bible_study_members").delete().eq("group_id", group_id).eq("member_id", member_id).execute()
+
+
+# ---------------------------------------------------------------------------
+# Pledges
+# ---------------------------------------------------------------------------
+
+class PledgeIn(BaseModel):
+    member_id: Optional[str] = None
+    year: int
+    category: str
+    amount: float
+    notes: str = ""
+
+
+@app.get("/pledges")
+def list_pledges(auth: AuthDep, sb: DBDep):
+    return sb_select(sb, "pledges", auth.church_id)
+
+
+@app.post("/pledges", status_code=201)
+def create_pledge(body: PledgeIn, auth: AuthDep, sb: DBDep):
+    return sb_insert(sb, "pledges", {**body.model_dump(), "church_id": auth.church_id})
+
+
+@app.put("/pledges/{pledge_id}")
+def update_pledge(pledge_id: str, body: PledgeIn, auth: AuthDep, sb: DBDep):
+    return sb_update(sb, "pledges", auth.church_id, pledge_id, body.model_dump())
+
+
+@app.delete("/pledges/{pledge_id}", status_code=204)
+def delete_pledge(pledge_id: str, auth: AuthDep, sb: DBDep):
+    sb_delete(sb, "pledges", auth.church_id, pledge_id)
+
+
+# ---------------------------------------------------------------------------
+# Directory (read-only member listing for printable directory)
+# ---------------------------------------------------------------------------
+
+@app.get("/directory")
+def get_directory(auth: AuthDep, sb: DBDep):
+    """Return all active members sorted by last name for directory/printing."""
+    rows = (
+        sb.table("members")
+        .select("id, first_name, last_name, preferred_name, phone, cell_phone, email, address, city, state, zip, family_id, status, photo_url")
+        .eq("church_id", auth.church_id)
+        .eq("status", "Active")
+        .order("last_name")
+        .execute()
+        .data
+    )
+    return rows
