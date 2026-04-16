@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from supabase import create_client, Client
 from groq import Groq
+import stripe as stripe_lib
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,8 @@ class Settings(BaseSettings):
     supabase_anon_key: str
     groq_api_key: str = ""
     stripe_secret_key: str = ""
+    stripe_price_id: str = "price_1TMdpmQ1M88c4OEyX5BeLKjT"
+    stripe_webhook_secret: str = ""
     resend_api_key: str = ""
     email_from: str = "ShepherdsCore <noreply@shepherdscore.com>"
     cors_origins: str = "http://localhost:5173"
@@ -1002,6 +1005,162 @@ def send_giving_receipt(auth: AuthDep, sb: DBDep, member_id: str = Query(...), g
     """
     success = send_email(member["email"], f"Giving Receipt — {church_name}", html)
     return {"sent": success}
+
+
+# ---------------------------------------------------------------------------
+# Stripe Billing
+# ---------------------------------------------------------------------------
+
+def _get_stripe():
+    if not settings.stripe_secret_key:
+        raise HTTPException(status_code=503, detail="Billing not configured")
+    stripe_lib.api_key = settings.stripe_secret_key
+    return stripe_lib
+
+
+@app.get("/billing/status")
+def billing_status(auth: AuthDep, sb: DBDep):
+    """Get current subscription status for this church."""
+    church = sb.table("churches").select("subscription_status, stripe_customer_id, created_at").eq("id", auth.church_id).single().execute().data
+    if not church:
+        raise HTTPException(status_code=404, detail="Church not found")
+
+    status = church.get("subscription_status", "trial")
+    created = church.get("created_at", "")
+
+    # Calculate trial days remaining
+    trial_days_left = 0
+    if status == "trial" and created:
+        from datetime import timedelta
+        try:
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            trial_end = created_dt + timedelta(days=14)
+            remaining = (trial_end - datetime.now(timezone.utc)).days
+            trial_days_left = max(0, remaining)
+        except Exception:
+            trial_days_left = 0
+
+    return {
+        "status": status,
+        "trial_days_left": trial_days_left,
+        "has_customer": bool(church.get("stripe_customer_id")),
+    }
+
+
+@app.post("/billing/checkout")
+def create_checkout(auth: AuthDep, sb: DBDep):
+    """Create a Stripe Checkout session for subscription with 14-day trial."""
+    stripe = _get_stripe()
+
+    church = sb.table("churches").select("id, name, stripe_customer_id").eq("id", auth.church_id).single().execute().data
+
+    # Create or reuse Stripe customer
+    customer_id = church.get("stripe_customer_id")
+    if not customer_id:
+        customer = stripe.Customer.create(
+            email=auth.email,
+            name=church.get("name", ""),
+            metadata={"church_id": auth.church_id},
+        )
+        customer_id = customer.id
+        sb.table("churches").update({"stripe_customer_id": customer_id}).eq("id", auth.church_id).execute()
+
+    session = stripe.checkout.Session.create(
+        customer=customer_id,
+        mode="subscription",
+        payment_method_types=["card"],
+        line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
+        subscription_data={"trial_period_days": 14},
+        success_url="{ORIGIN}/settings?billing=success".replace("{ORIGIN}", settings.cors_origins.split(",")[0].strip()),
+        cancel_url="{ORIGIN}/settings?billing=cancel".replace("{ORIGIN}", settings.cors_origins.split(",")[0].strip()),
+        metadata={"church_id": auth.church_id},
+    )
+
+    return {"checkout_url": session.url}
+
+
+@app.post("/billing/portal")
+def create_portal(auth: AuthDep, sb: DBDep):
+    """Create a Stripe Customer Portal session for managing subscription."""
+    stripe = _get_stripe()
+
+    church = sb.table("churches").select("stripe_customer_id").eq("id", auth.church_id).single().execute().data
+    customer_id = church.get("stripe_customer_id") if church else None
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="No billing account. Subscribe first.")
+
+    session = stripe.billing_portal.Session.create(
+        customer=customer_id,
+        return_url=settings.cors_origins.split(",")[0].strip() + "/settings",
+    )
+
+    return {"portal_url": session.url}
+
+
+@app.post("/billing/webhook")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhook events to update subscription status."""
+    body = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
+    stripe = _get_stripe()
+
+    if settings.stripe_webhook_secret:
+        try:
+            event = stripe.Webhook.construct_event(body, sig, settings.stripe_webhook_secret)
+        except Exception as e:
+            logger.warning(f"Webhook signature failed: {e}")
+            raise HTTPException(status_code=400, detail="Invalid signature")
+    else:
+        event = stripe.Event.construct_from(json.loads(body), stripe.api_key)
+
+    event_type = event.get("type", "")
+    data = event.get("data", {}).get("object", {})
+    logger.info(f"Stripe webhook: {event_type}")
+
+    # Get church_id from customer metadata
+    customer_id = data.get("customer", "")
+    church_id = None
+    if customer_id:
+        try:
+            customer = stripe.Customer.retrieve(customer_id)
+            church_id = customer.get("metadata", {}).get("church_id")
+        except Exception:
+            pass
+
+    if not church_id:
+        return {"received": True}
+
+    # Create an admin-level Supabase client for webhook updates
+    db = create_client(settings.supabase_url, settings.supabase_anon_key)
+
+    status_map = {
+        "customer.subscription.created": "active",
+        "customer.subscription.updated": None,  # check sub status
+        "customer.subscription.deleted": "canceled",
+        "customer.subscription.trial_will_end": None,  # info only
+        "invoice.payment_succeeded": "active",
+        "invoice.payment_failed": "past_due",
+    }
+
+    new_status = status_map.get(event_type)
+
+    if event_type == "customer.subscription.updated":
+        sub_status = data.get("status", "")
+        if sub_status == "active":
+            new_status = "active"
+        elif sub_status == "trialing":
+            new_status = "trial"
+        elif sub_status == "past_due":
+            new_status = "past_due"
+        elif sub_status in ("canceled", "unpaid"):
+            new_status = "canceled"
+
+    if new_status:
+        db.table("churches").update({"subscription_status": new_status}).eq("id", church_id).execute()
+        logger.info(f"Updated church {church_id} subscription to {new_status}")
+
+    return {"received": True}
 
 
 # ---------------------------------------------------------------------------
