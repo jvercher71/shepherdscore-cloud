@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import styles from './Layout.module.css'
@@ -29,11 +29,18 @@ interface ChurchInfo { name?: string; logo_url?: string }
 export default function Layout() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [church, setChurch] = useState<ChurchInfo>({})
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     api.get<ChurchInfo>('/settings').then(setChurch).catch(() => {})
   }, [])
+
+  // Close menu on navigation
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [location.pathname])
 
   const handleSignOut = async () => {
     await signOut()
@@ -42,7 +49,18 @@ export default function Layout() {
 
   return (
     <div className={styles.shell}>
-      <aside className={styles.sidebar}>
+      {/* Mobile top bar */}
+      <header className={styles.topbar}>
+        <button className={styles.hamburger} onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">
+          <span /><span /><span />
+        </button>
+        <span className={styles.topbarTitle}>{church.name || 'ShepherdsCore'}</span>
+      </header>
+
+      {/* Overlay for mobile */}
+      {menuOpen && <div className={styles.overlay} onClick={() => setMenuOpen(false)} />}
+
+      <aside className={`${styles.sidebar} ${menuOpen ? styles.sidebarOpen : ''}`}>
         <div className={styles.logo}>
           {church.logo_url ? (
             <img src={church.logo_url} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', marginBottom: 4 }} />

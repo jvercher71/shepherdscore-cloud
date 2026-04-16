@@ -318,3 +318,113 @@ tr:hover td {
   background: rgba(239,68,68,0.07);
   border-color: var(--color-danger);
 }
+
+/* ============================================================
+   MOBILE RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .pageTitle {
+    font-size: 20px;
+    margin-bottom: 16px;
+  }
+
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .statCard {
+    padding: 16px 14px;
+  }
+
+  .statValue {
+    font-size: 24px;
+  }
+
+  .statLabel {
+    font-size: 11px;
+  }
+
+  /* Make tables horizontally scrollable */
+  .tableWrap {
+    border-radius: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    min-width: 500px;
+  }
+
+  th, td {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .searchInput {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .addBtn {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Forms: stack to single column */
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .formGrid .fieldFull {
+    grid-column: 1;
+  }
+
+  /* Modals: full width on mobile */
+  .modalOverlay {
+    padding: 12px;
+    align-items: flex-start;
+    padding-top: 40px;
+  }
+
+  .modal {
+    padding: 20px;
+    max-height: 85vh;
+    border-radius: 12px;
+  }
+
+  .modalTitle {
+    font-size: 16px;
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+  }
+
+  .modalActions button {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Buttons: larger touch targets */
+  .editBtn, .deleteBtn, .actionBtn, .secondaryBtn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .saveBtn, .cancelBtn {
+    padding: 12px 20px;
+  }
+
+  .badge {
+    font-size: 10px;
+  }
+}
