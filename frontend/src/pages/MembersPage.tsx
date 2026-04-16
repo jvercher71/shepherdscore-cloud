@@ -31,6 +31,10 @@ export default function MembersPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [csvText, setCsvText] = useState('')
+  const [importResult, setImportResult] = useState<{ message: string; errors: string[] } | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const load = async () => {
     try {
@@ -108,6 +112,37 @@ export default function MembersPage() {
     reader.readAsDataURL(file)
   }
 
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setCsvText(reader.result as string)
+    reader.readAsText(file)
+  }
+
+  const handleImport = async () => {
+    if (!csvText.trim()) { setError('No CSV data'); return }
+    setImporting(true); setError(''); setImportResult(null)
+    try {
+      const res = await api.post<{ message: string; imported: number; skipped: number; errors: string[] }>('/members/import-csv', { csv_text: csvText })
+      setImportResult({ message: res.message, errors: res.errors || [] })
+      if (res.imported > 0) await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Import failed') }
+    finally { setImporting(false) }
+  }
+
+  const handleExport = async () => {
+    try {
+      const res = await api.get<{ csv: string; count: number }>('/members/export-csv')
+      if (!res.csv) { setError('No members to export'); return }
+      const blob = new Blob([res.csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `members-export-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click(); URL.revokeObjectURL(url)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Export failed') }
+  }
+
   const formatAddress = (m: Member) => {
     const parts = [m.address, m.city && m.state ? `${m.city}, ${m.state}` : m.city || m.state, m.zip].filter(Boolean)
     return parts.join(' ') || ''
@@ -137,6 +172,8 @@ export default function MembersPage() {
                 <option value="All">All Statuses</option>
                 {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
               </select>
+              <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import CSV</button>
+              <button className={styles.secondaryBtn} onClick={handleExport}>Export CSV</button>
               <button className={styles.addBtn} onClick={openAdd}>+ Add Member</button>
             </div>
             <table>
@@ -319,6 +356,44 @@ export default function MembersPage() {
             <div className={styles.modalActions}>
               <button className={styles.cancelBtn} onClick={() => setShowModal(false)}>Cancel</button>
               <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Modal */}
+      {showImport && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modal} style={{ maxWidth: 580 }}>
+            <h2 className={styles.modalTitle}>Import Members from CSV</h2>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
+              Upload a CSV file with a header row. Required columns: <strong>first_name</strong>, <strong>last_name</strong>.
+              Optional: preferred_name, email, phone, cell_phone, address, city, state, zip, birthday, join_date, joined_by, status, notes.
+            </p>
+            <div className={styles.field} style={{ marginBottom: 16 }}>
+              <label>CSV File</label>
+              <input type="file" accept=".csv,text/csv" onChange={handleCsvUpload} />
+            </div>
+            {csvText && (
+              <div style={{ background: 'var(--color-bg)', borderRadius: 8, padding: '10px 14px', fontSize: 12, maxHeight: 120, overflow: 'auto', marginBottom: 16, fontFamily: 'monospace', whiteSpace: 'pre', color: 'var(--color-text-secondary)' }}>
+                {csvText.slice(0, 500)}{csvText.length > 500 ? '…' : ''}
+              </div>
+            )}
+            {importResult && (
+              <div style={{ background: importResult.errors.length ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 13 }}>
+                <strong>{importResult.message}</strong>
+                {importResult.errors.length > 0 && (
+                  <ul style={{ margin: '8px 0 0 16px', fontSize: 12, color: '#999' }}>
+                    {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => { setShowImport(false); setCsvText(''); setImportResult(null) }}>Close</button>
+              <button className={styles.saveBtn} onClick={handleImport} disabled={importing || !csvText}>
+                {importing ? 'Importing…' : 'Import'}
+              </button>
             </div>
           </div>
         </div>

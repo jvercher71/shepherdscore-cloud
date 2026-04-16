@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     supabase_anon_key: str
     groq_api_key: str = ""
     stripe_secret_key: str = ""
+    resend_api_key: str = ""
+    email_from: str = "ShepherdsCore <noreply@shepherdscore.com>"
     cors_origins: str = "http://localhost:5173"
 
     class Config:
@@ -166,9 +168,54 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting (in-memory, per-IP)
+# ---------------------------------------------------------------------------
+
+import time as _time
+from collections import defaultdict as _dd
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+_rate_store: dict[str, list[float]] = _dd(list)
+_RATE_LIMIT = 120          # requests per window
+_RATE_WINDOW = 60.0        # seconds
+_AI_RATE_LIMIT = 20        # AI endpoints per window
+_AI_RATE_WINDOW = 60.0
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
+        path = request.url.path
+        now = _time.monotonic()
+
+        # Use stricter limit for AI endpoints
+        is_ai = path.startswith("/ai/") or path.startswith("/api/ai/")
+        key = f"ai:{client_ip}" if is_ai else f"api:{client_ip}"
+        limit = _AI_RATE_LIMIT if is_ai else _RATE_LIMIT
+        window = _AI_RATE_WINDOW if is_ai else _RATE_WINDOW
+
+        # Clean old entries
+        _rate_store[key] = [t for t in _rate_store[key] if now - t < window]
+
+        if len(_rate_store[key]) >= limit:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Please try again shortly."},
+            )
+
+        _rate_store[key].append(now)
+        return await call_next(request)
+
+
+app.add_middleware(RateLimitMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +396,105 @@ def update_member(member_id: str, body: MemberUpdateIn, auth: AuthDep, sb: DBDep
 @app.delete("/members/{member_id}", status_code=204)
 def delete_member(member_id: str, auth: AuthDep, sb: DBDep):
     sb_delete(sb, "members", auth.church_id, member_id)
+
+
+# CSV member import
+class CSVImportIn(BaseModel):
+    csv_text: str = Field(max_length=500000)  # ~5MB of CSV text
+
+
+@app.post("/members/import-csv")
+def import_members_csv(body: CSVImportIn, auth: AuthDep, sb: DBDep):
+    """Import members from CSV text. Expected columns: first_name, last_name, and any optional fields."""
+    import csv
+    import io
+
+    reader = csv.DictReader(io.StringIO(body.csv_text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV has no header row")
+
+    # Normalize headers (lowercase, strip spaces)
+    field_map = {f.strip().lower().replace(' ', '_'): f for f in reader.fieldnames}
+
+    # Required
+    if 'first_name' not in field_map and 'firstname' not in field_map:
+        raise HTTPException(status_code=400, detail="CSV must have a 'first_name' column")
+    if 'last_name' not in field_map and 'lastname' not in field_map:
+        raise HTTPException(status_code=400, detail="CSV must have a 'last_name' column")
+
+    VALID_FIELDS = {
+        'first_name', 'firstname', 'last_name', 'lastname', 'preferred_name',
+        'email', 'phone', 'cell_phone', 'address', 'city', 'state', 'zip',
+        'birthday', 'join_date', 'joined_by', 'status', 'notes',
+    }
+
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for i, row in enumerate(reader, start=2):  # start=2 because row 1 is header
+        # Map to normalized field names
+        record: dict = {}
+        for norm_key, orig_key in field_map.items():
+            val = (row.get(orig_key) or "").strip()
+            if norm_key == 'firstname':
+                record['first_name'] = val
+            elif norm_key == 'lastname':
+                record['last_name'] = val
+            elif norm_key in VALID_FIELDS:
+                record[norm_key] = val
+
+        first = record.get('first_name', '').strip()
+        last = record.get('last_name', '').strip()
+        if not first or not last:
+            skipped += 1
+            errors.append(f"Row {i}: missing first or last name")
+            continue
+
+        # Set defaults
+        record.setdefault('status', 'Active')
+        record['church_id'] = auth.church_id
+
+        # Null out empty dates
+        for date_field in ('birthday', 'join_date'):
+            if date_field in record and not record[date_field]:
+                record[date_field] = None
+
+        try:
+            sb_insert(sb, "members", record)
+            imported += 1
+        except Exception as e:
+            skipped += 1
+            errors.append(f"Row {i}: {str(e)[:80]}")
+
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors[:20],  # cap error list
+        "message": f"Imported {imported} members" + (f", skipped {skipped}" if skipped else ""),
+    }
+
+
+# CSV member export
+@app.get("/members/export-csv")
+def export_members_csv(auth: AuthDep, sb: DBDep):
+    """Export all members as CSV text."""
+    import csv
+    import io
+
+    members = sb.table("members").select("*").eq("church_id", auth.church_id).order("last_name").execute().data
+    if not members:
+        return {"csv": "", "count": 0}
+
+    output = io.StringIO()
+    fields = ['first_name', 'last_name', 'preferred_name', 'email', 'phone', 'cell_phone',
+              'address', 'city', 'state', 'zip', 'birthday', 'join_date', 'joined_by', 'status', 'notes']
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction='ignore')
+    writer.writeheader()
+    for m in members:
+        writer.writerow(m)
+
+    return {"csv": output.getvalue(), "count": len(members)}
 
 
 # ---------------------------------------------------------------------------
@@ -757,6 +903,105 @@ def request_password_reset(body: PasswordResetIn):
     )
     # Always return success to avoid email enumeration
     return {"message": "If an account exists with that email, a password reset link has been sent."}
+
+
+# ---------------------------------------------------------------------------
+# Email notifications (via Resend API or skip if not configured)
+# ---------------------------------------------------------------------------
+
+def send_email(to: str, subject: str, html: str) -> bool:
+    """Send an email via Resend API. Returns False if not configured or fails."""
+    if not settings.resend_api_key:
+        logger.info(f"Email skipped (no RESEND_API_KEY): to={to} subject={subject}")
+        return False
+    try:
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {settings.resend_api_key}", "Content-Type": "application/json"},
+            json={"from": settings.email_from, "to": [to], "subject": subject, "html": html},
+            timeout=10.0,
+        )
+        if resp.is_success:
+            logger.info(f"Email sent: to={to} subject={subject}")
+            return True
+        logger.warning(f"Email failed: {resp.status_code} {resp.text[:200]}")
+        return False
+    except Exception as e:
+        logger.warning(f"Email error: {e}")
+        return False
+
+
+class SendEmailIn(BaseModel):
+    to: str = Field(max_length=255)
+    subject: str = Field(max_length=500)
+    body: str = Field(max_length=10000)
+
+
+@app.post("/email/send")
+def send_custom_email(body_in: SendEmailIn, auth: AuthDep, sb: DBDep):
+    """Send a custom email (admin/staff only)."""
+    if auth.role == "View-Only":
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    church = sb.table("churches").select("name").eq("id", auth.church_id).single().execute().data
+    church_name = church.get("name", "ShepherdsCore") if church else "ShepherdsCore"
+
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: #1a1a2e; padding: 20px; text-align: center;">
+        <h2 style="color: #0066CC; margin: 0;">{church_name}</h2>
+      </div>
+      <div style="padding: 24px; line-height: 1.6;">
+        {body_in.body.replace(chr(10), '<br>')}
+      </div>
+      <div style="padding: 16px; text-align: center; font-size: 12px; color: #999;">
+        Sent via ShepherdsCore Cloud
+      </div>
+    </div>
+    """
+    success = send_email(body_in.to, body_in.subject, html)
+    if not success and not settings.resend_api_key:
+        return {"sent": False, "message": "Email not configured. Add RESEND_API_KEY to enable."}
+    return {"sent": success, "message": "Email sent" if success else "Failed to send email"}
+
+
+@app.post("/email/giving-receipt")
+def send_giving_receipt(auth: AuthDep, sb: DBDep, member_id: str = Query(...), giving_id: str = Query(...)):
+    """Send a giving receipt email to a member."""
+    member = sb_get(sb, "members", auth.church_id, member_id)
+    if not member.get("email"):
+        raise HTTPException(status_code=400, detail="Member has no email address")
+
+    giving = sb_get(sb, "giving", auth.church_id, giving_id)
+    church = sb.table("churches").select("name, address").eq("id", auth.church_id).single().execute().data
+    church_name = church.get("name", "Our Church") if church else "Our Church"
+
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: #1a1a2e; padding: 20px; text-align: center;">
+        <h2 style="color: #0066CC; margin: 0;">{church_name}</h2>
+      </div>
+      <div style="padding: 24px; line-height: 1.6;">
+        <p>Dear {member.get('preferred_name') or member['first_name']},</p>
+        <p>Thank you for your generous contribution. This is your giving receipt:</p>
+        <div style="background: #f8f9fa; border-radius: 8px; padding: 16px 20px; margin: 16px 0;">
+          <table style="width: 100%; font-size: 14px;">
+            <tr><td style="color: #666;">Date</td><td style="text-align: right; font-weight: 600;">{giving['date']}</td></tr>
+            <tr><td style="color: #666;">Category</td><td style="text-align: right; font-weight: 600;">{giving['category']}</td></tr>
+            <tr><td style="color: #666;">Method</td><td style="text-align: right; font-weight: 600;">{giving.get('method', 'N/A') or 'N/A'}</td></tr>
+            <tr><td style="color: #666; border-top: 1px solid #ddd; padding-top: 8px;">Amount</td>
+                <td style="text-align: right; font-weight: 700; color: #22C55E; border-top: 1px solid #ddd; padding-top: 8px; font-size: 18px;">${giving['amount']:.2f}</td></tr>
+          </table>
+        </div>
+        <p style="font-size: 12px; color: #999;">No goods or services were provided in exchange for this contribution.</p>
+      </div>
+      <div style="padding: 16px; text-align: center; font-size: 12px; color: #999;">
+        {church_name} &bull; Sent via ShepherdsCore Cloud
+      </div>
+    </div>
+    """
+    success = send_email(member["email"], f"Giving Receipt — {church_name}", html)
+    return {"sent": success}
 
 
 # ---------------------------------------------------------------------------
