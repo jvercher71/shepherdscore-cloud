@@ -1046,9 +1046,13 @@ def invite_staff(body: InviteStaffIn, auth: AuthDep, sb: DBDep):
     if existing:
         raise HTTPException(status_code=400, detail="This email is already on your staff list")
 
+    # Generate a placeholder user_id — will be updated when they actually sign up/login
+    import uuid
+    placeholder_uid = str(uuid.uuid4())
+
     return sb_insert(sb, "church_staff", {
         "church_id": auth.church_id,
-        "user_id": auth.user_id,  # placeholder — will be updated on their first login
+        "user_id": placeholder_uid,
         "email": body.email.strip().lower(),
         "display_name": body.display_name.strip(),
         "role": role,
