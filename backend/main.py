@@ -1052,31 +1052,42 @@ def create_checkout(auth: AuthDep, sb: DBDep):
     """Create a Stripe Checkout session for subscription with 14-day trial."""
     stripe = _get_stripe()
 
-    church = sb.table("churches").select("id, name, stripe_customer_id").eq("id", auth.church_id).single().execute().data
+    try:
+        church = sb.table("churches").select("id, name, stripe_customer_id").eq("id", auth.church_id).single().execute().data
+    except Exception:
+        church = sb.table("churches").select("id, name").eq("id", auth.church_id).single().execute().data
 
-    # Create or reuse Stripe customer
-    customer_id = church.get("stripe_customer_id")
-    if not customer_id:
-        customer = stripe.Customer.create(
-            email=auth.email,
-            name=church.get("name", ""),
+    try:
+        # Create or reuse Stripe customer
+        customer_id = church.get("stripe_customer_id") if church else None
+        if not customer_id:
+            customer = stripe.Customer.create(
+                email=auth.email,
+                name=church.get("name", "") if church else "",
+                metadata={"church_id": auth.church_id},
+            )
+            customer_id = customer.id
+            try:
+                sb.table("churches").update({"stripe_customer_id": customer_id}).eq("id", auth.church_id).execute()
+            except Exception as e:
+                logger.warning(f"Could not save stripe_customer_id: {e}")
+
+        origin = settings.cors_origins.split(",")[0].strip()
+        session = stripe.checkout.Session.create(
+            customer=customer_id,
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
+            subscription_data={"trial_period_days": 14},
+            success_url=f"{origin}/billing?billing=success",
+            cancel_url=f"{origin}/billing?billing=cancel",
             metadata={"church_id": auth.church_id},
         )
-        customer_id = customer.id
-        sb.table("churches").update({"stripe_customer_id": customer_id}).eq("id", auth.church_id).execute()
 
-    session = stripe.checkout.Session.create(
-        customer=customer_id,
-        mode="subscription",
-        payment_method_types=["card"],
-        line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
-        subscription_data={"trial_period_days": 14},
-        success_url="{ORIGIN}/settings?billing=success".replace("{ORIGIN}", settings.cors_origins.split(",")[0].strip()),
-        cancel_url="{ORIGIN}/settings?billing=cancel".replace("{ORIGIN}", settings.cors_origins.split(",")[0].strip()),
-        metadata={"church_id": auth.church_id},
-    )
-
-    return {"checkout_url": session.url}
+        return {"checkout_url": session.url}
+    except Exception as e:
+        logger.error(f"Stripe checkout error: {e}")
+        raise HTTPException(status_code=500, detail=f"Billing error: {str(e)}")
 
 
 @app.post("/billing/portal")
