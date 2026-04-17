@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 import jsPDF from 'jspdf'
@@ -10,6 +10,9 @@ interface DonorTotal { member_id: string | null; first_name: string; last_name: 
 interface ChurchSettings { name: string; address: string; pastor_name: string; email: string; phone: string; website: string }
 interface GivingDetail { member_name: string; amount: number; category: string; method: string; date: string; notes: string }
 interface DetailReport { records: GivingDetail[]; by_category: GivingReport[]; grand_total: number; record_count: number }
+interface AttendanceRecord { id: string; service_type: string; date: string; headcount: number; notes: string }
+interface AttendanceByService { service_type: string; total_headcount: number; service_count: number; average: number }
+interface AttendanceReport { records: AttendanceRecord[]; by_service: AttendanceByService[]; grand_total: number; record_count: number; overall_average: number }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -30,6 +33,16 @@ export default function ReportsPage() {
   const [church, setChurch] = useState<ChurchSettings | null>(null)
   const [aiSummary, setAiSummary] = useState('')
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false)
+
+  // Attendance report state (independent controls so users can run it without affecting Giving)
+  const [attYear, setAttYear] = useState(CURRENT_YEAR)
+  const [attMonth, setAttMonth] = useState(new Date().getMonth() + 1)
+  const [attDay, setAttDay] = useState('')
+  const [attMode, setAttMode] = useState<'month' | 'day' | 'year'>('month')
+  const [attService, setAttService] = useState('All')
+  const [attServiceOptions, setAttServiceOptions] = useState<string[]>([])
+  const [attData, setAttData] = useState<AttendanceReport | null>(null)
+  const [attLoading, setAttLoading] = useState(false)
 
   const runReport = async () => {
     setLoading(true); setError(''); setAiSummary('')
@@ -68,6 +81,122 @@ export default function ReportsPage() {
       setAiSummary(res.summary)
     } catch (e) { setAiSummary(e instanceof Error ? `Error: ${e.message}` : 'Failed') }
     finally { setAiSummaryLoading(false) }
+  }
+
+  // Pull existing service types once so the dropdown is populated even before running a report
+  useEffect(() => {
+    api.get<AttendanceRecord[]>('/attendance')
+      .then(rows => {
+        const types = Array.from(new Set(rows.map(r => r.service_type).filter(Boolean))).sort()
+        setAttServiceOptions(types)
+      })
+      .catch(() => { /* non-fatal — dropdown just shows All */ })
+  }, [])
+
+  const runAttendanceReport = async () => {
+    setAttLoading(true); setError('')
+    try {
+      let url = `/reports/attendance?year=${attYear}`
+      if (attMode === 'month' || attMode === 'day') url += `&month=${attMonth}`
+      if (attMode === 'day' && attDay) url += `&day=${attDay}`
+      if (attService && attService !== 'All') url += `&service_type=${encodeURIComponent(attService)}`
+      const [data, ch] = await Promise.all([
+        api.get<AttendanceReport>(url),
+        church ? Promise.resolve(church) : api.get<ChurchSettings>('/settings').catch(() => null),
+      ])
+      setAttData(data)
+      if (ch && !church) setChurch(ch)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load attendance report') }
+    finally { setAttLoading(false) }
+  }
+
+  const attTitle = attMode === 'day' && attDay
+    ? `${MONTHS[attMonth - 1]} ${attDay}, ${attYear}`
+    : attMode === 'year' ? `${attYear}` : `${MONTHS[attMonth - 1]} ${attYear}`
+
+  const generateAttendancePDF = () => {
+    if (!attData) return
+    const doc = new jsPDF()
+    const churchName = church?.name || 'Church'
+
+    doc.setFontSize(18); doc.setFont('helvetica', 'bold')
+    doc.text(churchName, 105, 20, { align: 'center' })
+    doc.setFontSize(13); doc.setFont('helvetica', 'normal')
+    const subtitle = `Attendance Report — ${attTitle}${attService !== 'All' ? ` · ${attService}` : ''}`
+    doc.text(subtitle, 105, 28, { align: 'center' })
+    doc.setFontSize(9); doc.setTextColor(128)
+    doc.text(`Generated ${new Date().toLocaleDateString()}`, 105, 34, { align: 'center' })
+    doc.setTextColor(0)
+
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold')
+    doc.text('Summary by Service Type', 14, 46)
+    autoTable(doc, {
+      startY: 50,
+      head: [['Service Type', 'Services', 'Total Headcount', 'Average']],
+      body: [
+        ...attData.by_service.map(s => [s.service_type, String(s.service_count), String(s.total_headcount), s.average.toFixed(1)]),
+        [
+          { content: 'Grand Total', styles: { fontStyle: 'bold' } },
+          { content: String(attData.record_count), styles: { fontStyle: 'bold' } },
+          { content: String(attData.grand_total), styles: { fontStyle: 'bold' } },
+          { content: attData.overall_average.toFixed(1), styles: { fontStyle: 'bold' } },
+        ],
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [0, 102, 204], fontSize: 10 },
+      styles: { fontSize: 10 },
+    })
+
+    if (attData.records.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const finalY = ((doc as any).lastAutoTable?.finalY as number) || 90
+      doc.setFontSize(12); doc.setFont('helvetica', 'bold')
+      doc.text('Detail Records', 14, finalY + 14)
+      autoTable(doc, {
+        startY: finalY + 18,
+        head: [['Date', 'Service Type', 'Headcount', 'Notes']],
+        body: attData.records.map(r => [r.date, r.service_type, String(r.headcount), r.notes || '']),
+        theme: 'striped',
+        headStyles: { fillColor: [0, 102, 204], fontSize: 9 },
+        styles: { fontSize: 9 },
+      })
+    }
+
+    doc.save(`attendance-report-${attTitle.replace(/[, ]+/g, '-')}.pdf`)
+  }
+
+  const generateAttendanceExcel = () => {
+    if (!attData) return
+    // CSV (UTF-8 with BOM) — opens natively in Excel and Google Sheets.
+    const esc = (v: string | number) => {
+      const s = String(v ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines: string[] = []
+    lines.push(`${church?.name || 'Church'} — Attendance Report`)
+    lines.push(`Period,${attTitle}`)
+    lines.push(`Service Filter,${attService}`)
+    lines.push(`Generated,${new Date().toLocaleDateString()}`)
+    lines.push('')
+    lines.push('Summary by Service Type')
+    lines.push(['Service Type', 'Services', 'Total Headcount', 'Average'].join(','))
+    for (const s of attData.by_service) {
+      lines.push([esc(s.service_type), s.service_count, s.total_headcount, s.average.toFixed(1)].join(','))
+    }
+    lines.push(['Grand Total', attData.record_count, attData.grand_total, attData.overall_average.toFixed(1)].join(','))
+    lines.push('')
+    lines.push('Detail Records')
+    lines.push(['Date', 'Service Type', 'Headcount', 'Notes'].join(','))
+    for (const r of attData.records) {
+      lines.push([r.date, esc(r.service_type), r.headcount, esc(r.notes || '')].join(','))
+    }
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `attendance-report-${attTitle.replace(/[, ]+/g, '-')}.csv`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   const grandTotal = givingData.reduce((s, r) => s + r.total, 0)
@@ -351,6 +480,133 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Attendance Report Controls */}
+      <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+        <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Attendance Report</h3>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div className={styles.field} style={{ minWidth: 120 }}>
+            <label>Report By</label>
+            <select value={attMode} onChange={e => setAttMode(e.target.value as 'month' | 'day' | 'year')}>
+              <option value="month">Month</option>
+              <option value="day">Specific Day</option>
+              <option value="year">Full Year</option>
+            </select>
+          </div>
+          <div className={styles.field} style={{ minWidth: 100 }}>
+            <label>Year</label>
+            <select value={attYear} onChange={e => setAttYear(Number(e.target.value))}>
+              {YEARS.map(y => <option key={y}>{y}</option>)}
+            </select>
+          </div>
+          {attMode !== 'year' && (
+            <div className={styles.field} style={{ minWidth: 120 }}>
+              <label>Month</label>
+              <select value={attMonth} onChange={e => setAttMonth(Number(e.target.value))}>
+                {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+              </select>
+            </div>
+          )}
+          {attMode === 'day' && (
+            <div className={styles.field} style={{ minWidth: 80 }}>
+              <label>Day</label>
+              <input type="number" min="1" max="31" value={attDay} onChange={e => setAttDay(e.target.value)} placeholder="1-31" />
+            </div>
+          )}
+          <div className={styles.field} style={{ minWidth: 160 }}>
+            <label>Service</label>
+            <select value={attService} onChange={e => setAttService(e.target.value)}>
+              <option value="All">All Services</option>
+              {attServiceOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <button className={styles.addBtn} onClick={runAttendanceReport} disabled={attLoading}>
+            {attLoading ? 'Loading…' : 'Run Report'}
+          </button>
+          {attData && attData.record_count > 0 && (
+            <>
+              <button className={styles.secondaryBtn} onClick={generateAttendancePDF}>Download PDF</button>
+              <button className={styles.secondaryBtn} onClick={generateAttendanceExcel}>Download Excel</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Attendance Results */}
+      {attData && (
+        <>
+          {attData.record_count === 0 ? (
+            <div className={styles.tableWrap} style={{ marginBottom: 24, padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+              No attendance records for {attTitle}{attService !== 'All' ? ` · ${attService}` : ''}.
+            </div>
+          ) : (
+            <>
+              <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+                Attendance — {attTitle}{attService !== 'All' ? ` · ${attService}` : ''}
+              </h2>
+
+              <div className={styles.statsGrid} style={{ marginBottom: 16 }}>
+                <div className={styles.statCard}>
+                  <div className={styles.statValue} style={{ color: '#0066CC' }}>{attData.record_count}</div>
+                  <div className={styles.statLabel}>Services Recorded</div>
+                </div>
+                <div className={styles.statCard}>
+                  <div className={styles.statValue} style={{ color: '#22C55E' }}>{attData.grand_total}</div>
+                  <div className={styles.statLabel}>Total Headcount</div>
+                </div>
+                <div className={styles.statCard}>
+                  <div className={styles.statValue} style={{ color: '#F59E0B' }}>{attData.overall_average.toFixed(1)}</div>
+                  <div className={styles.statLabel}>Average per Service</div>
+                </div>
+              </div>
+
+              <div className={styles.tableWrap} style={{ marginBottom: 16 }}>
+                <div className={styles.toolbar}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>Summary by Service Type</span>
+                </div>
+                <table>
+                  <thead><tr><th>Service Type</th><th>Services</th><th style={{ textAlign: 'right' }}>Total Headcount</th><th style={{ textAlign: 'right' }}>Average</th></tr></thead>
+                  <tbody>
+                    {attData.by_service.map(s => (
+                      <tr key={s.service_type}>
+                        <td>{s.service_type}</td>
+                        <td>{s.service_count}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{s.total_headcount}</td>
+                        <td style={{ textAlign: 'right' }}>{s.average.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>Grand Total</td>
+                      <td style={{ fontWeight: 700 }}>{attData.record_count}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 16, color: '#22C55E' }}>{attData.grand_total}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700 }}>{attData.overall_average.toFixed(1)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className={styles.tableWrap} style={{ marginBottom: 24 }}>
+                <div className={styles.toolbar}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>Detail Records ({attData.record_count})</span>
+                </div>
+                <table>
+                  <thead><tr><th>Date</th><th>Service Type</th><th style={{ textAlign: 'right' }}>Headcount</th><th>Notes</th></tr></thead>
+                  <tbody>
+                    {attData.records.map(r => (
+                      <tr key={r.id}>
+                        <td>{r.date}</td>
+                        <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.service_type}</span></td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{r.headcount}</td>
+                        <td>{r.notes || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
       )}
 
       {/* Annual Report */}

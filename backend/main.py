@@ -1469,6 +1469,60 @@ def report_giving_detail(auth: AuthDep, sb: DBDep, year: int, month: Optional[in
     }
 
 
+@app.get("/reports/attendance")
+def report_attendance_detail(
+    auth: AuthDep,
+    sb: DBDep,
+    year: int,
+    month: Optional[int] = None,
+    day: Optional[int] = None,
+    service_type: Optional[str] = None,
+):
+    """Attendance report — filterable by year, month, day, and service type."""
+    cid = auth.church_id
+
+    q = sb.table("attendance").select("id, service_type, date, headcount, notes").eq("church_id", cid)
+
+    if day and month:
+        q = q.eq("date", f"{year}-{month:02d}-{day:02d}")
+    elif month:
+        start = f"{year}-{month:02d}-01"
+        end = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
+        q = q.gte("date", start).lt("date", end)
+    else:
+        q = q.gte("date", f"{year}-01-01").lt("date", f"{year + 1}-01-01")
+
+    if service_type and service_type != "All":
+        q = q.eq("service_type", service_type)
+
+    rows = q.execute().data or []
+
+    # Aggregate by service type
+    svc_agg: dict[str, dict] = {}
+    for r in rows:
+        svc = r.get("service_type") or "Unspecified"
+        if svc not in svc_agg:
+            svc_agg[svc] = {"service_type": svc, "total_headcount": 0, "service_count": 0}
+        svc_agg[svc]["total_headcount"] += int(r.get("headcount") or 0)
+        svc_agg[svc]["service_count"] += 1
+
+    by_service = []
+    for s in svc_agg.values():
+        s["average"] = round(s["total_headcount"] / s["service_count"], 1) if s["service_count"] else 0
+        by_service.append(s)
+
+    grand_total = sum(int(r.get("headcount") or 0) for r in rows)
+    overall_avg = round(grand_total / len(rows), 1) if rows else 0
+
+    return {
+        "records": sorted(rows, key=lambda x: x["date"]),
+        "by_service": sorted(by_service, key=lambda x: x["total_headcount"], reverse=True),
+        "grand_total": grand_total,
+        "record_count": len(rows),
+        "overall_average": overall_avg,
+    }
+
+
 # ---------------------------------------------------------------------------
 # AI — Pastoral Insights
 # ---------------------------------------------------------------------------
