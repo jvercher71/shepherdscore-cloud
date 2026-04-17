@@ -168,6 +168,7 @@ export default function ReportsPage() {
       })
     }
 
+    addPdfFooter(doc)
     doc.save(`attendance-report-${attTitle.replace(/[, ]+/g, '-')}.pdf`)
   }
 
@@ -254,6 +255,7 @@ export default function ReportsPage() {
       styles: { fontSize: 9 },
     })
 
+    addPdfFooter(doc)
     doc.save(aiReportFilename('pdf'))
   }
 
@@ -276,6 +278,19 @@ export default function ReportsPage() {
     a.href = url; a.download = aiReportFilename('csv')
     document.body.appendChild(a); a.click(); document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  }
+
+  const addPdfFooter = (doc: jsPDF) => {
+    const pageCount = doc.getNumberOfPages()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(8)
+      doc.setTextColor(150)
+      doc.setFont('helvetica', 'normal')
+      doc.text('ShepherdsCore  ·  Brought to you by VercherTechnologies.one', 105, pageHeight - 8, { align: 'center' })
+    }
+    doc.setTextColor(0)
   }
 
   const grandTotal = givingData.reduce((s, r) => s + r.total, 0)
@@ -339,6 +354,7 @@ export default function ReportsPage() {
       })
     }
 
+    addPdfFooter(doc)
     doc.save(`giving-report-${reportTitle.replace(/[, ]+/g, '-')}.pdf`)
   }
 
@@ -373,6 +389,7 @@ export default function ReportsPage() {
       styles: { fontSize: 10 },
     })
 
+    addPdfFooter(doc)
     doc.save(`annual-giving-${year}.pdf`)
   }
 
@@ -436,6 +453,7 @@ export default function ReportsPage() {
     doc.setFont('helvetica', 'normal')
     doc.text(ch?.name || '', 14, y)
 
+    addPdfFooter(doc)
     doc.save(`tax-letter-${donor.first_name}-${donor.last_name}-${year}.pdf`)
   }
 

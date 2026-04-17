@@ -63,8 +63,9 @@ export default function Layout() {
 
       <aside className={`${styles.sidebar} ${menuOpen ? styles.sidebarOpen : ''}`}>
         <div className={styles.logo}>
+          <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
           {church.logo_url ? (
-            <img src={church.logo_url} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', marginBottom: 4 }} />
+            <img src={church.logo_url} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain', marginTop: 6 }} />
           ) : null}
           <span className={styles.logoText}>{church.name || 'ShepherdsCore'}</span>
           <span className={styles.logoTag}>Cloud</span>
@@ -85,6 +86,9 @@ export default function Layout() {
         <div className={styles.userFooter}>
           <span className={styles.userEmail}>{user?.email}</span>
           <button onClick={handleSignOut} className={styles.signOutBtn}>Sign Out</button>
+          <a href="https://VercherTechnologies.one" target="_blank" rel="noopener noreferrer" className={styles.credit}>
+            Brought to you by<br /><strong>VercherTechnologies.one</strong>
+          </a>
         </div>
       </aside>
       <main className={styles.content}>
