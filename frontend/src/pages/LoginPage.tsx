@@ -60,8 +60,7 @@ export default function LoginPage() {
       <div className={styles.page}>
         <div className={styles.card}>
           <div className={styles.header}>
-            <h1 className={styles.title}>ShepherdsCore</h1>
-            <span className={styles.tag}>Cloud</span>
+            <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} />
           </div>
           <p className={styles.subtitle}>Check your email</p>
           <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
@@ -81,8 +80,7 @@ export default function LoginPage() {
       <div className={styles.page}>
         <div className={styles.card}>
           <div className={styles.header}>
-            <h1 className={styles.title}>ShepherdsCore</h1>
-            <span className={styles.tag}>Cloud</span>
+            <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} />
           </div>
           <p className={styles.subtitle}>Reset your password</p>
           {resetSent ? (

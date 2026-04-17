@@ -37,8 +37,7 @@ export default function ResetPasswordPage() {
       <div className={styles.page}>
         <div className={styles.card}>
           <div className={styles.header}>
-            <h1 className={styles.title}>ShepherdsCore</h1>
-            <span className={styles.tag}>Cloud</span>
+            <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} />
           </div>
           <p className={styles.subtitle}>Password updated!</p>
           <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
@@ -53,8 +52,7 @@ export default function ResetPasswordPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <h1 className={styles.title}>ShepherdsCore</h1>
-          <span className={styles.tag}>Cloud</span>
+          <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} />
         </div>
         <p className={styles.subtitle}>Set your new password</p>
         <form onSubmit={handleSubmit} className={styles.form}>

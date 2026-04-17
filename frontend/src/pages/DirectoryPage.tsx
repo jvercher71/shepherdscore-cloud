@@ -8,8 +8,11 @@ interface DirectoryMember {
   city: string; state: string; zip: string; status: string; photo_url: string
 }
 
+interface ChurchInfo { name?: string; logo_url?: string }
+
 export default function DirectoryPage() {
   const [members, setMembers] = useState<DirectoryMember[]>([])
+  const [church, setChurch] = useState<ChurchInfo>({})
   const [search, setSearch] = useState('')
   const [showPhotos, setShowPhotos] = useState(true)
   const [error, setError] = useState('')
@@ -20,6 +23,7 @@ export default function DirectoryPage() {
       .then(setMembers)
       .catch(e => setError(e instanceof Error ? e.message : 'Load failed'))
       .finally(() => setIsLoading(false))
+    api.get<ChurchInfo>('/settings').then(setChurch).catch(() => {})
   }, [])
 
   const filtered = members.filter(m =>
@@ -41,7 +45,6 @@ export default function DirectoryPage() {
     <div>
       {/* Screen-only controls */}
       <div className="no-print">
-        <h1 className={styles.pageTitle}>Member Directory</h1>
         {error && <p className={styles.error}>{error}</p>}
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           <input className={styles.searchInput} placeholder="Search directory…" value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
@@ -54,10 +57,19 @@ export default function DirectoryPage() {
         </div>
       </div>
 
-      {/* Print header */}
-      <div className="print-only" style={{ display: 'none', textAlign: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 4px' }}>Church Member Directory</h1>
-        <p style={{ fontSize: 12, color: '#888' }}>Printed {new Date().toLocaleDateString()}</p>
+      {/* Directory header — shown on screen AND print. Church logo replaces ShepherdsCore branding. */}
+      <div className="directory-header" style={{ textAlign: 'center', marginBottom: 24 }}>
+        {church.logo_url ? (
+          <img src={church.logo_url} alt={church.name || 'Church'} style={{ maxWidth: 140, maxHeight: 140, objectFit: 'contain', marginBottom: 10 }} />
+        ) : (
+          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 8 }} className="no-print">
+            Tip: upload your church logo in <strong>Settings</strong> to brand this directory.
+          </p>
+        )}
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 4px' }}>
+          {church.name ? `${church.name} — Member Directory` : 'Church Member Directory'}
+        </h1>
+        <p style={{ fontSize: 12, color: '#888', margin: 0 }}>Printed {new Date().toLocaleDateString()}</p>
       </div>
 
       {/* Directory content — prints clean */}
@@ -110,7 +122,8 @@ export default function DirectoryPage() {
           main { padding: 0 !important; }
           table { font-size: 11px !important; }
           td, th { padding: 6px 10px !important; }
-          img { width: 28px !important; height: 28px !important; }
+          td img { width: 28px !important; height: 28px !important; }
+          .directory-header img { max-width: 120px !important; max-height: 120px !important; width: auto !important; height: auto !important; }
           @page { margin: 0.5in; }
         }
       `}</style>
