@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-label="ShepherdsCore">
+  <defs>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22C55E"/>
+      <stop offset="1" stop-color="#0066CC"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square monogram with integrated cross -->
+  <rect x="8" y="8" width="80" height="80" rx="18" fill="url(#g3)"/>
+  <!-- Stylized S with a subtle cross inside the counter -->
+  <path d="M62 30 C62 24, 56 22, 50 22 L40 22 C34 22, 30 26, 30 32 C30 38, 34 42, 40 42 L56 42 C62 42, 66 46, 66 52 C66 58, 62 62, 56 62 L38 62 C32 62, 28 60, 28 56"
+        fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <!-- Tiny cross accent -->
+  <rect x="46" y="46" width="4" height="14" fill="#FFFFFF" rx="1"/>
+  <rect x="41" y="51" width="14" height="4" fill="#FFFFFF" rx="1"/>
+  <!-- Wordmark -->
+  <text x="104" y="54" font-family="'Inter', Helvetica, Arial, sans-serif" font-weight="800" font-size="32" fill="#1A1A2E" letter-spacing="-1">shepherds<tspan fill="#22C55E">.</tspan><tspan fill="#0066CC">core</tspan></text>
+  <text x="104" y="74" font-family="Helvetica, Arial, sans-serif" font-weight="600" font-size="10" fill="#6B7280" letter-spacing="3">MODERN CHURCH SOFTWARE</text>
+</svg>

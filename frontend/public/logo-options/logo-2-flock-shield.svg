@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" role="img" aria-label="ShepherdsCore">
+  <defs>
+    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0B84FF"/>
+      <stop offset="1" stop-color="#0047AB"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded shield with a stylized sheep silhouette -->
+  <path d="M48 8 C62 8, 80 14, 84 22 L84 48 C84 70, 68 82, 48 88 C28 82, 12 70, 12 48 L12 22 C16 14, 34 8, 48 8 Z" fill="url(#g2)"/>
+  <!-- Sheep body (cloud-like) -->
+  <g transform="translate(22,30)">
+    <circle cx="12" cy="24" r="9" fill="#FFFFFF"/>
+    <circle cx="24" cy="18" r="11" fill="#FFFFFF"/>
+    <circle cx="38" cy="22" r="9" fill="#FFFFFF"/>
+    <circle cx="46" cy="28" r="7" fill="#FFFFFF"/>
+    <!-- Head -->
+    <ellipse cx="50" cy="32" rx="6" ry="7" fill="#1A1A2E"/>
+    <circle cx="52" cy="30" r="1.3" fill="#FFFFFF"/>
+    <!-- Ear -->
+    <path d="M54 26 Q58 24 57 30 Z" fill="#1A1A2E"/>
+    <!-- Legs -->
+    <rect x="18" y="32" width="3" height="8" fill="#1A1A2E" rx="1"/>
+    <rect x="32" y="32" width="3" height="8" fill="#1A1A2E" rx="1"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="104" y="54" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="30" fill="#1A1A2E" letter-spacing="-0.3">Shepherds<tspan fill="#0B84FF">Core</tspan></text>
+  <text x="104" y="74" font-family="Helvetica, Arial, sans-serif" font-weight="500" font-size="11" fill="#6B7280" letter-spacing="2">TEND  ·  LEAD  ·  GROW</text>
+</svg>
