@@ -120,7 +120,9 @@ export default function LoginPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <h1 className={styles.title}>ShepherdsCore</h1>
+          <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} />
+        </div>
+        <div className={styles.tagRow}>
           <span className={styles.tag}>Cloud</span>
         </div>
         <p className={styles.subtitle}>

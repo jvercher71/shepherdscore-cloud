@@ -24,6 +24,12 @@
   margin-bottom: 10px;
 }
 
+.tagRow {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
 .brandLogo {
   width: 180px;
   max-width: 100%;

@@ -63,10 +63,11 @@ export default function Layout() {
 
       <aside className={`${styles.sidebar} ${menuOpen ? styles.sidebarOpen : ''}`}>
         <div className={styles.logo}>
-          <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
           {church.logo_url ? (
-            <img src={church.logo_url} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain', marginTop: 6 }} />
-          ) : null}
+            <img src={church.logo_url} alt={church.name || 'Church'} className={styles.brandLogo} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          ) : (
+            <img src="/shepherdscore-logo.png" alt="ShepherdsCore" className={styles.brandLogo} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          )}
           <span className={styles.logoText}>{church.name || 'ShepherdsCore'}</span>
           <span className={styles.logoTag}>Cloud</span>
         </div>
