@@ -1524,6 +1524,221 @@ def report_attendance_detail(
 
 
 # ---------------------------------------------------------------------------
+# AI — Custom Report Builder
+# ---------------------------------------------------------------------------
+
+class AICustomReportIn(BaseModel):
+    prompt: str
+
+
+def _month_window(year: int, month: int) -> tuple[str, str]:
+    start = f"{year}-{month:02d}-01"
+    end = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
+    return start, end
+
+
+@app.post("/ai/custom-report")
+def ai_custom_report(body: AICustomReportIn, auth: AuthDep, sb: DBDep):
+    """Build a report from a natural-language prompt.
+
+    The AI returns a structured plan (data source + filters + grouping);
+    the backend executes it against real data so numbers are never hallucinated.
+    """
+    cid = auth.church_id
+    today = datetime.now(timezone.utc).date()
+
+    system_prompt = f"""You convert a church admin's plain-English report request into a JSON plan.
+Today is {today.isoformat()}.
+Return ONLY valid JSON (no markdown fences) with this exact shape:
+{{
+  "title": "short human-readable report title",
+  "data_source": "attendance" | "giving" | "members" | "events",
+  "filters": {{
+    "year": <int|null>,
+    "month": <int 1-12|null>,
+    "day": <int 1-31|null>,
+    "date_from": "YYYY-MM-DD"|null,
+    "date_to": "YYYY-MM-DD"|null,
+    "service_type": <string|null>,
+    "category": <string|null>,
+    "event_type": <string|null>
+  }},
+  "group_by": "day" | "month" | "year" | "service_type" | "category" | "event_type" | "none",
+  "summary_notes": "1-2 sentence plain-language description"
+}}
+
+Rules:
+- Use date_from/date_to for custom ranges; use year/month/day for common periods.
+- For attendance, group_by is usually service_type or month. For giving, usually category or month.
+- If the request is ambiguous, pick the most useful default (e.g. current year).
+- Only use the four data_source values listed. Omit unknown filters as null."""
+
+    plan_text = ai_chat(system_prompt, body.prompt, max_tokens=512)
+
+    # Strip optional markdown fences defensively
+    cleaned = plan_text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+
+    try:
+        plan = json.loads(cleaned)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail=f"AI returned invalid plan: {plan_text[:200]}")
+
+    data_source = plan.get("data_source", "attendance")
+    filters = plan.get("filters", {}) or {}
+    group_by = plan.get("group_by", "none")
+    title = plan.get("title", "Custom Report")
+
+    # Resolve date window
+    year = filters.get("year")
+    month = filters.get("month")
+    day = filters.get("day")
+    date_from = filters.get("date_from")
+    date_to = filters.get("date_to")
+
+    if date_from and date_to:
+        start, end_inclusive = date_from, date_to
+    elif day and month and year:
+        start = end_inclusive = f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    elif month and year:
+        s, e = _month_window(int(year), int(month))
+        start = s
+        end_inclusive = None
+        end_exclusive = e
+    elif year:
+        start = f"{int(year):04d}-01-01"
+        end_exclusive = f"{int(year) + 1:04d}-01-01"
+        end_inclusive = None
+    else:
+        start = None
+        end_inclusive = None
+        end_exclusive = None
+
+    columns: list[str] = []
+    rows: list[list] = []
+
+    def window(q, date_col: str):
+        if date_from and date_to:
+            return q.gte(date_col, date_from).lte(date_col, date_to)
+        if day and month and year:
+            d = f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+            return q.eq(date_col, d)
+        if month and year:
+            s, e = _month_window(int(year), int(month))
+            return q.gte(date_col, s).lt(date_col, e)
+        if year:
+            return q.gte(date_col, f"{int(year):04d}-01-01").lt(date_col, f"{int(year) + 1:04d}-01-01")
+        return q
+
+    if data_source == "attendance":
+        q = sb.table("attendance").select("service_type, date, headcount, notes").eq("church_id", cid)
+        q = window(q, "date")
+        if filters.get("service_type"):
+            q = q.eq("service_type", filters["service_type"])
+        data = q.order("date", desc=False).execute().data or []
+
+        if group_by == "service_type":
+            agg: dict[str, dict] = {}
+            for r in data:
+                k = r.get("service_type") or "Unspecified"
+                a = agg.setdefault(k, {"service_type": k, "services": 0, "total_headcount": 0})
+                a["services"] += 1
+                a["total_headcount"] += int(r.get("headcount") or 0)
+            columns = ["Service Type", "Services", "Total Headcount", "Average"]
+            rows = [[a["service_type"], a["services"], a["total_headcount"],
+                     round(a["total_headcount"] / a["services"], 1) if a["services"] else 0]
+                    for a in sorted(agg.values(), key=lambda x: x["total_headcount"], reverse=True)]
+        elif group_by in ("month", "day", "year"):
+            def bucket(d: str) -> str:
+                return d[:7] if group_by == "month" else d[:4] if group_by == "year" else d
+            agg2: dict[str, dict] = {}
+            for r in data:
+                k = bucket(r["date"])
+                a = agg2.setdefault(k, {"period": k, "services": 0, "total_headcount": 0})
+                a["services"] += 1
+                a["total_headcount"] += int(r.get("headcount") or 0)
+            columns = ["Period", "Services", "Total Headcount", "Average"]
+            rows = [[a["period"], a["services"], a["total_headcount"],
+                     round(a["total_headcount"] / a["services"], 1) if a["services"] else 0]
+                    for a in sorted(agg2.values(), key=lambda x: x["period"])]
+        else:
+            columns = ["Date", "Service Type", "Headcount", "Notes"]
+            rows = [[r["date"], r.get("service_type", ""), int(r.get("headcount") or 0), r.get("notes") or ""] for r in data]
+
+    elif data_source == "giving":
+        q = sb.table("giving").select("member_id, amount, category, method, date, notes").eq("church_id", cid)
+        q = window(q, "date")
+        if filters.get("category"):
+            q = q.eq("category", filters["category"])
+        data = q.order("date", desc=False).execute().data or []
+
+        if group_by == "category":
+            agg3: dict[str, dict] = {}
+            for r in data:
+                k = r.get("category") or "Uncategorized"
+                a = agg3.setdefault(k, {"category": k, "transactions": 0, "total": 0.0})
+                a["transactions"] += 1
+                a["total"] += float(r.get("amount") or 0)
+            columns = ["Category", "Transactions", "Total"]
+            rows = [[a["category"], a["transactions"], round(a["total"], 2)]
+                    for a in sorted(agg3.values(), key=lambda x: x["total"], reverse=True)]
+        elif group_by in ("month", "day", "year"):
+            def bucket2(d: str) -> str:
+                return d[:7] if group_by == "month" else d[:4] if group_by == "year" else d
+            agg4: dict[str, dict] = {}
+            for r in data:
+                k = bucket2(r["date"])
+                a = agg4.setdefault(k, {"period": k, "transactions": 0, "total": 0.0})
+                a["transactions"] += 1
+                a["total"] += float(r.get("amount") or 0)
+            columns = ["Period", "Transactions", "Total"]
+            rows = [[a["period"], a["transactions"], round(a["total"], 2)]
+                    for a in sorted(agg4.values(), key=lambda x: x["period"])]
+        else:
+            member_rows = sb.table("members").select("id, first_name, last_name, preferred_name").eq("church_id", cid).execute().data or []
+            mmap = {m["id"]: f"{m.get('preferred_name') or m['first_name']} {m['last_name']}" for m in member_rows}
+            columns = ["Date", "Member", "Category", "Method", "Amount"]
+            rows = [[r["date"], mmap.get(r.get("member_id"), "Anonymous"), r.get("category") or "", r.get("method") or "", round(float(r.get("amount") or 0), 2)]
+                    for r in data]
+
+    elif data_source == "members":
+        q = sb.table("members").select("first_name, last_name, email, phone, status, created_at").eq("church_id", cid)
+        if year or date_from or date_to:
+            q = window(q, "created_at")
+        data = q.order("last_name", desc=False).execute().data or []
+        columns = ["Last Name", "First Name", "Email", "Phone", "Status", "Joined"]
+        rows = [[m.get("last_name") or "", m.get("first_name") or "", m.get("email") or "", m.get("phone") or "",
+                 m.get("status") or "", (m.get("created_at") or "")[:10]] for m in data]
+
+    elif data_source == "events":
+        q = sb.table("events").select("name, date, event_type, event_time").eq("church_id", cid)
+        q = window(q, "date")
+        if filters.get("event_type"):
+            q = q.eq("event_type", filters["event_type"])
+        data = q.order("date", desc=False).execute().data or []
+        columns = ["Date", "Time", "Name", "Type"]
+        rows = [[e.get("date") or "", e.get("event_time") or "", e.get("name") or "", e.get("event_type") or ""] for e in data]
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported data_source: {data_source}")
+
+    return {
+        "title": title,
+        "summary": plan.get("summary_notes", ""),
+        "data_source": data_source,
+        "group_by": group_by,
+        "filters": filters,
+        "columns": columns,
+        "rows": rows,
+        "record_count": len(rows),
+    }
+
+
+# ---------------------------------------------------------------------------
 # AI — Pastoral Insights
 # ---------------------------------------------------------------------------
 

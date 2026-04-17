@@ -13,6 +13,7 @@ interface DetailReport { records: GivingDetail[]; by_category: GivingReport[]; g
 interface AttendanceRecord { id: string; service_type: string; date: string; headcount: number; notes: string }
 interface AttendanceByService { service_type: string; total_headcount: number; service_count: number; average: number }
 interface AttendanceReport { records: AttendanceRecord[]; by_service: AttendanceByService[]; grand_total: number; record_count: number; overall_average: number }
+interface AICustomReport { title: string; summary: string; data_source: string; group_by: string; columns: string[]; rows: (string | number)[][]; record_count: number }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -43,6 +44,11 @@ export default function ReportsPage() {
   const [attServiceOptions, setAttServiceOptions] = useState<string[]>([])
   const [attData, setAttData] = useState<AttendanceReport | null>(null)
   const [attLoading, setAttLoading] = useState(false)
+
+  // AI report builder state
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiReport, setAiReport] = useState<AICustomReport | null>(null)
+  const [aiReportLoading, setAiReportLoading] = useState(false)
 
   const runReport = async () => {
     setLoading(true); setError(''); setAiSummary('')
@@ -195,6 +201,79 @@ export default function ReportsPage() {
     const a = document.createElement('a')
     a.href = url
     a.download = `attendance-report-${attTitle.replace(/[, ]+/g, '-')}.csv`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const runAiReport = async () => {
+    if (!aiPrompt.trim()) return
+    setAiReportLoading(true); setError('')
+    try {
+      const [data, ch] = await Promise.all([
+        api.post<AICustomReport>('/ai/custom-report', { prompt: aiPrompt }),
+        church ? Promise.resolve(church) : api.get<ChurchSettings>('/settings').catch(() => null),
+      ])
+      setAiReport(data)
+      if (ch && !church) setChurch(ch)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to build AI report') }
+    finally { setAiReportLoading(false) }
+  }
+
+  const aiReportFilename = (ext: string) => {
+    const slug = (aiReport?.title || 'ai-report').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    return `${slug}.${ext}`
+  }
+
+  const generateAiReportPDF = () => {
+    if (!aiReport) return
+    const doc = new jsPDF()
+    const churchName = church?.name || 'Church'
+    doc.setFontSize(18); doc.setFont('helvetica', 'bold')
+    doc.text(churchName, 105, 20, { align: 'center' })
+    doc.setFontSize(13); doc.setFont('helvetica', 'normal')
+    doc.text(aiReport.title, 105, 28, { align: 'center' })
+    doc.setFontSize(9); doc.setTextColor(128)
+    doc.text(`Generated ${new Date().toLocaleDateString()}`, 105, 34, { align: 'center' })
+    doc.setTextColor(0)
+
+    let startY = 44
+    if (aiReport.summary) {
+      doc.setFontSize(10); doc.setFont('helvetica', 'italic')
+      const lines = doc.splitTextToSize(aiReport.summary, 180)
+      doc.text(lines, 14, startY)
+      startY += lines.length * 5 + 4
+      doc.setFont('helvetica', 'normal')
+    }
+
+    autoTable(doc, {
+      startY,
+      head: [aiReport.columns],
+      body: aiReport.rows.map(row => row.map(cell => String(cell ?? ''))),
+      theme: 'striped',
+      headStyles: { fillColor: [0, 102, 204], fontSize: 10 },
+      styles: { fontSize: 9 },
+    })
+
+    doc.save(aiReportFilename('pdf'))
+  }
+
+  const generateAiReportCSV = () => {
+    if (!aiReport) return
+    const esc = (v: string | number) => {
+      const s = String(v ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines: string[] = []
+    lines.push(`${church?.name || 'Church'} — ${aiReport.title}`)
+    if (aiReport.summary) lines.push(esc(aiReport.summary))
+    lines.push(`Generated,${new Date().toLocaleDateString()}`)
+    lines.push('')
+    lines.push(aiReport.columns.map(esc).join(','))
+    for (const row of aiReport.rows) lines.push(row.map(esc).join(','))
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = aiReportFilename('csv')
     document.body.appendChild(a); a.click(); document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
@@ -364,6 +443,79 @@ export default function ReportsPage() {
     <div>
       <h1 className={styles.pageTitle}>Reports</h1>
       {error && <p className={styles.error}>{error}</p>}
+
+      {/* AI Report Builder */}
+      <div style={{ background: 'linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%)', border: '1px solid #d6e4f5', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', letterSpacing: 0.5 }}>AI REPORT BUILDER</span>
+        </div>
+        <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Ask for a report in plain English</h3>
+        <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 12 }}>
+          Examples: "Attendance by month for Wednesday services this year" · "Giving by category for March {CURRENT_YEAR}" · "Members who joined in {CURRENT_YEAR}"
+        </p>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <textarea
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.target.value)}
+            placeholder="Describe the report you want…"
+            rows={2}
+            style={{ flex: 1, minWidth: 280, padding: '10px 12px', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runAiReport() }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button className={styles.addBtn} onClick={runAiReport} disabled={aiReportLoading || !aiPrompt.trim()}>
+              {aiReportLoading ? 'Building…' : 'Build Report'}
+            </button>
+            {aiReport && aiReport.record_count > 0 && (
+              <>
+                <button className={styles.secondaryBtn} onClick={generateAiReportPDF}>Download PDF</button>
+                <button className={styles.secondaryBtn} onClick={generateAiReportCSV}>Download CSV</button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {aiReport && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{aiReport.title}</h2>
+          {aiReport.summary && (
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 12 }}>{aiReport.summary}</p>
+          )}
+          {aiReport.record_count === 0 ? (
+            <div className={styles.tableWrap} style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+              No records matched this request. Try rephrasing or widening the date range.
+            </div>
+          ) : (
+            <div className={styles.tableWrap}>
+              <div className={styles.toolbar}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{aiReport.record_count} {aiReport.record_count === 1 ? 'row' : 'rows'}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                  {aiReport.data_source}{aiReport.group_by && aiReport.group_by !== 'none' ? ` · grouped by ${aiReport.group_by}` : ''}
+                </span>
+              </div>
+              <table>
+                <thead>
+                  <tr>{aiReport.columns.map((c, i) => (
+                    <th key={i} style={{ textAlign: i === 0 ? 'left' : typeof aiReport.rows[0]?.[i] === 'number' ? 'right' : 'left' }}>{c}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {aiReport.rows.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} style={{ textAlign: typeof cell === 'number' ? 'right' : 'left', fontWeight: typeof cell === 'number' ? 500 : 400 }}>
+                          {typeof cell === 'number' ? cell.toLocaleString() : String(cell ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Giving Report Controls */}
       <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
