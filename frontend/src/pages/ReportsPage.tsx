@@ -457,13 +457,76 @@ export default function ReportsPage() {
     doc.save(`tax-letter-${donor.first_name}-${donor.last_name}-${year}.pdf`)
   }
 
+  // --- Quick-build card actions ----------------------------------------
+  const scrollTo = (id: string) => {
+    const el = document.getElementById(id)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  const quickMonthlyFinancial = () => {
+    setReportMode('month')
+    setYear(CURRENT_YEAR)
+    setMonth(new Date().getMonth() + 1)
+    scrollTo('giving-report-section')
+    setTimeout(() => void runReport(), 50)
+  }
+  const quickQuarterlyAttendance = () => {
+    setAttMode('month')
+    setAttYear(CURRENT_YEAR)
+    setAttMonth(new Date().getMonth() + 1)
+    setAttService('All')
+    scrollTo('attendance-report-section')
+    setTimeout(() => void runAttendance(), 50)
+  }
+  const quickGrowthTrends = () => {
+    setAiPrompt(`Members who joined by month in ${CURRENT_YEAR}`)
+    scrollTo('ai-builder-section')
+  }
+  const quickAnnualGiving = () => {
+    scrollTo('annual-report-section')
+    setTimeout(() => void runAnnualReport(), 50)
+  }
+
   return (
     <div>
       <h1 className={styles.pageTitle}>Reports</h1>
+      <p style={{ color: 'var(--color-text-secondary)', fontSize: 14, marginBottom: 24 }}>
+        Generate and view actionable insights.
+      </p>
       {error && <p className={styles.error}>{error}</p>}
 
+      {/* Quick-build cards — per UI mockup */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+        gap: 16, marginBottom: 28,
+      }}>
+        <QuickReportCard
+          category="FINANCIAL" title="Monthly Financial Summary"
+          sub={`Giving for ${MONTHS[new Date().getMonth()]} ${CURRENT_YEAR}`}
+          color="#EF4444" icon="heart"
+          onGenerate={quickMonthlyFinancial}
+        />
+        <QuickReportCard
+          category="ATTENDANCE" title="Attendance Analytics"
+          sub={`${MONTHS[new Date().getMonth()]} ${CURRENT_YEAR} · all services`}
+          color="#0066CC" icon="people"
+          onGenerate={quickQuarterlyAttendance}
+        />
+        <QuickReportCard
+          category="GROWTH" title="Membership Growth Trends"
+          sub={`New members joined by month (${CURRENT_YEAR})`}
+          color="#22C55E" icon="trending-up"
+          onGenerate={quickGrowthTrends}
+        />
+        <QuickReportCard
+          category="FINANCIAL" title="Annual Giving Statements"
+          sub={`Donor totals and tax letters for ${year}`}
+          color="#8B5CF6" icon="document"
+          onGenerate={quickAnnualGiving}
+        />
+      </div>
+
       {/* AI Report Builder */}
-      <div style={{ background: 'linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%)', border: '1px solid #d6e4f5', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+      <div id="ai-builder-section" style={{ background: 'linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%)', border: '1px solid #d6e4f5', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', letterSpacing: 0.5 }}>AI REPORT BUILDER</span>
         </div>
@@ -536,7 +599,7 @@ export default function ReportsPage() {
       )}
 
       {/* Giving Report Controls */}
-      <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+      <div id="giving-report-section" style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Giving Report</h3>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className={styles.field} style={{ minWidth: 120 }}>
@@ -653,7 +716,7 @@ export default function ReportsPage() {
       )}
 
       {/* Attendance Report Controls */}
-      <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+      <div id="attendance-report-section" style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Attendance Report</h3>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className={styles.field} style={{ minWidth: 120 }}>
@@ -780,7 +843,7 @@ export default function ReportsPage() {
       )}
 
       {/* Annual Report */}
-      <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+      <div id="annual-report-section" style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
         <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Annual Giving Summary & Tax Letters</h3>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className={styles.field} style={{ minWidth: 120 }}>
@@ -823,4 +886,97 @@ export default function ReportsPage() {
       )}
     </div>
   )
+}
+
+// --- Quick report card --------------------------------------------------
+
+type QRIcon = 'heart' | 'people' | 'trending-up' | 'document'
+
+function QuickReportCard({
+  category, title, sub, color, icon, onGenerate,
+}: {
+  category: string; title: string; sub: string; color: string; icon: QRIcon; onGenerate: () => void
+}) {
+  return (
+    <div style={{
+      background: 'var(--color-white)', borderRadius: 16, padding: '20px 22px',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', gap: 14,
+    }}>
+      <div style={{
+        width: 44, height: 44, borderRadius: 10,
+        background: hexToRgba(color, 0.10),
+        display: 'flex', alignItems: 'center', justifyContent: 'center', color,
+      }}>
+        <QuickIcon kind={icon} size={22} />
+      </div>
+      <div>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: 4 }}>
+          {category}
+        </div>
+        <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.3 }}>
+          {title}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 6 }}>
+          {sub}
+        </div>
+      </div>
+      <button
+        onClick={onGenerate}
+        style={{
+          marginTop: 'auto', background: 'var(--color-bg)', color: 'var(--color-text)',
+          border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 14px',
+          fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        }}
+      >
+        Generate
+      </button>
+    </div>
+  )
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const h = hex.replace('#', '')
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function QuickIcon({ kind, size = 22 }: { kind: QRIcon; size?: number }) {
+  const p = {
+    width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+  }
+  switch (kind) {
+    case 'heart':
+      return (
+        <svg {...p} fill="currentColor" stroke="none">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+        </svg>
+      )
+    case 'people':
+      return (
+        <svg {...p}>
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      )
+    case 'trending-up':
+      return (
+        <svg {...p}>
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+          <polyline points="17 6 23 6 23 12" />
+        </svg>
+      )
+    case 'document':
+      return (
+        <svg {...p}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+      )
+  }
 }
