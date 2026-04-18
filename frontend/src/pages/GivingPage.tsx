@@ -25,6 +25,7 @@ export default function GivingPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<GivingRecord | null>(null)
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
   const [showCatModal, setShowCatModal] = useState(false)
   const [newCat, setNewCat] = useState('')
@@ -181,14 +182,14 @@ export default function GivingPage() {
                   lastDate = r.date
                 }
                 rows.push(
-                  <tr key={r.id}>
+                  <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
                     <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
                     <td>{memberName(r.member_id)}</td>
                     <td><span className={`${styles.badge} ${styles.badgeBlue}`}>{r.category}</span></td>
                     <td>{r.method || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: '#22C55E' }}>${r.amount.toFixed(2)}</td>
                     <td>{r.notes || '—'}</td>
-                    <td>
+                    <td onClick={e => e.stopPropagation()}>
                       <button className={styles.editBtn} onClick={() => openEdit(r)}>Edit</button>
                       <button className={styles.deleteBtn} onClick={() => setDeleteConfirm(r.id)}>Delete</button>
                     </td>
@@ -312,6 +313,48 @@ export default function GivingPage() {
             </div>
             <div className={styles.modalActions}>
               <button className={styles.saveBtn} onClick={() => setShowCatModal(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail View Modal (opens on row click) */}
+      {viewing && (
+        <div className={styles.modalOverlay} onClick={() => setViewing(null)}>
+          <div className={styles.modal} style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <h2 className={styles.modalTitle}>Giving Record</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Date</span>
+                <span style={{ fontSize: 14 }}>{new Date(viewing.date + 'T12:00:00').toLocaleDateString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Member</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{memberName(viewing.member_id)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Amount</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: '#22C55E' }}>${viewing.amount.toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Category</span>
+                <span className={`${styles.badge} ${styles.badgeBlue}`}>{viewing.category}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Method</span>
+                <span style={{ fontSize: 14 }}>{viewing.method || '—'}</span>
+              </div>
+              {viewing.notes && (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Notes</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.6 }}>{viewing.notes}</div>
+                </div>
+              )}
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setViewing(null)}>Close</button>
+              <button className={styles.editBtn} onClick={() => { openEdit(viewing); setViewing(null) }}>Edit</button>
+              <button className={styles.deleteBtn} onClick={() => { setDeleteConfirm(viewing.id); setViewing(null) }}>Delete</button>
             </div>
           </div>
         </div>

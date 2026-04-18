@@ -28,6 +28,7 @@ export default function AttendancePage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [filterType, setFilterType] = useState('All')
+  const [viewing, setViewing] = useState<AttendanceRecord | null>(null)
 
   const load = async () => {
     try { setRecords(await api.get<AttendanceRecord[]>('/attendance')) }
@@ -149,7 +150,7 @@ export default function AttendancePage() {
             {filtered.length === 0 ? (
               <tr><td colSpan={5} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No attendance records yet'}</td></tr>
             ) : filtered.map(r => (
-              <tr key={r.id}>
+              <tr key={r.id} onClick={() => setViewing(r)} style={{ cursor: 'pointer' }}>
                 <td>{new Date(r.date + 'T12:00:00').toLocaleDateString()}</td>
                 <td>
                   <span style={{
@@ -163,7 +164,7 @@ export default function AttendancePage() {
                 </td>
                 <td style={{ fontWeight: 700, fontSize: 16 }}>{r.headcount}</td>
                 <td>{r.notes || '—'}</td>
-                <td>
+                <td onClick={e => e.stopPropagation()}>
                   <button className={styles.editBtn} onClick={() => openEdit(r)}>Edit</button>
                   <button className={styles.deleteBtn} onClick={() => handleDelete(r.id)}>Delete</button>
                 </td>
@@ -172,6 +173,40 @@ export default function AttendancePage() {
           </tbody>
         </table>
       </div>
+
+      {/* Detail View Modal */}
+      {viewing && (
+        <div className={styles.modalOverlay} onClick={() => setViewing(null)}>
+          <div className={styles.modal} style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <h2 className={styles.modalTitle}>Attendance Record</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Date</span>
+                <span style={{ fontSize: 14 }}>{new Date(viewing.date + 'T12:00:00').toLocaleDateString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Service</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: TYPE_COLORS[viewing.service_type] || '#888' }}>{viewing.service_type}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Headcount</span>
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{viewing.headcount}</span>
+              </div>
+              {viewing.notes && (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Notes</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.6 }}>{viewing.notes}</div>
+                </div>
+              )}
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setViewing(null)}>Close</button>
+              <button className={styles.editBtn} onClick={() => { openEdit(viewing); setViewing(null) }}>Edit</button>
+              <button className={styles.deleteBtn} onClick={() => { setViewing(null); handleDelete(viewing.id) }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className={styles.modalOverlay}>

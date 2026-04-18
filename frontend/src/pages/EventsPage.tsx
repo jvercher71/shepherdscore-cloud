@@ -25,6 +25,7 @@ export default function EventsPage() {
   const [attendedIds, setAttendedIds] = useState<Set<string>>(new Set())
   const [attendanceLoading, setAttendanceLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [viewing, setViewing] = useState<Event | null>(null)
 
   const load = async () => {
     try {
@@ -143,7 +144,7 @@ export default function EventsPage() {
             {events.length === 0 ? (
               <tr><td colSpan={7} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No events yet'}</td></tr>
             ) : events.map(ev => (
-              <tr key={ev.id}>
+              <tr key={ev.id} onClick={() => setViewing(ev)} style={{ cursor: 'pointer' }}>
                 <td style={{ fontWeight: 600 }}>{ev.name}</td>
                 <td><span className={styles.badge} style={{ background: 'rgba(0,102,204,0.1)', color: '#0052a3' }}>{ev.event_type || '—'}</span></td>
                 <td>
@@ -153,12 +154,12 @@ export default function EventsPage() {
                 </td>
                 <td>{ev.event_time || '—'}</td>
                 <td>{ev.location || '—'}</td>
-                <td>
+                <td onClick={e => e.stopPropagation()}>
                   <button className={styles.editBtn} onClick={() => openAttendance(ev)}>
                     Take Attendance
                   </button>
                 </td>
-                <td>
+                <td onClick={e => e.stopPropagation()}>
                   <button className={styles.editBtn} onClick={() => openEdit(ev)}>Edit</button>
                   <button className={styles.deleteBtn} onClick={() => setDeleteConfirm(ev.id)}>Delete</button>
                 </td>
@@ -167,6 +168,45 @@ export default function EventsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Detail View Modal */}
+      {viewing && (
+        <div className={styles.modalOverlay} onClick={() => setViewing(null)}>
+          <div className={styles.modal} style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+            <h2 className={styles.modalTitle}>{viewing.name}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Type</span>
+                <span className={styles.badge} style={{ background: 'rgba(0,102,204,0.1)', color: '#0052a3' }}>{viewing.event_type || '—'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Date</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{new Date(viewing.date + 'T12:00:00').toLocaleDateString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Time</span>
+                <span style={{ fontSize: 14 }}>{viewing.event_time || '—'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Location</span>
+                <span style={{ fontSize: 14 }}>{viewing.location || '—'}</span>
+              </div>
+              {viewing.description && (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Description</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.6 }}>{viewing.description}</div>
+                </div>
+              )}
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setViewing(null)}>Close</button>
+              <button className={styles.editBtn} onClick={() => { openAttendance(viewing); setViewing(null) }}>Take Attendance</button>
+              <button className={styles.editBtn} onClick={() => { openEdit(viewing); setViewing(null) }}>Edit</button>
+              <button className={styles.deleteBtn} onClick={() => { setDeleteConfirm(viewing.id); setViewing(null) }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {showModal && (
