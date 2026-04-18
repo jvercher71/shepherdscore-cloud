@@ -16,6 +16,7 @@ import BibleStudyPage from './pages/BibleStudyPage'
 import DirectoryPage from './pages/DirectoryPage'
 import AIInsightsPage from './pages/AIInsightsPage'
 import CommDraftsPage from './pages/CommDraftsPage'
+import EmailPage from './pages/EmailPage'
 import SermonPrepPage from './pages/SermonPrepPage'
 import SmartSearchPage from './pages/SmartSearchPage'
 import HelpPage from './pages/HelpPage'
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="directory" element={<DirectoryPage />} />
         <Route path="ai/insights" element={<AIInsightsPage />} />
         <Route path="ai/comm-drafts" element={<CommDraftsPage />} />
+        <Route path="email" element={<EmailPage />} />
         <Route path="ai/sermon-prep" element={<SermonPrepPage />} />
         <Route path="staff" element={<StaffPage />} />
         <Route path="billing" element={<BillingPage />} />

@@ -972,6 +972,101 @@ def send_custom_email(body_in: SendEmailIn, auth: AuthDep, sb: DBDep):
     return {"sent": success, "message": "Email sent" if success else "Failed to send email"}
 
 
+class BroadcastEmailIn(BaseModel):
+    subject: str = Field(max_length=500)
+    body: str = Field(max_length=20000)
+    # At least one of the below should resolve to recipients:
+    member_ids: list[str] = Field(default_factory=list)
+    group_ids: list[str] = Field(default_factory=list)
+    bible_study_ids: list[str] = Field(default_factory=list)
+    role_tags: list[str] = Field(default_factory=list)
+    statuses: list[str] = Field(default_factory=list)
+    include_all_active: bool = False
+
+
+@app.post("/email/broadcast")
+def broadcast_email(body_in: BroadcastEmailIn, auth: AuthDep, sb: DBDep):
+    """Email a set of members resolved from any combination of: explicit member
+    ids, group memberships, Bible study rosters, role tags, status, or 'all
+    active'. Sends one email per recipient (no CC/BCC)."""
+    if auth.role == "View-Only":
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    cid = auth.church_id
+    recipient_ids: set[str] = set(body_in.member_ids or [])
+
+    if body_in.group_ids:
+        rows = sb.table("group_members").select("member_id").in_("group_id", body_in.group_ids).execute().data
+        recipient_ids.update(r["member_id"] for r in rows if r.get("member_id"))
+
+    if body_in.bible_study_ids:
+        rows = sb.table("bible_study_members").select("member_id").in_("group_id", body_in.bible_study_ids).execute().data
+        recipient_ids.update(r["member_id"] for r in rows if r.get("member_id"))
+
+    if body_in.role_tags or body_in.statuses or body_in.include_all_active:
+        q = sb.table("members").select("id, role_tags, status, email").eq("church_id", cid)
+        members = q.execute().data
+        for m in members:
+            if body_in.include_all_active and (m.get("status") or "Active") == "Active":
+                recipient_ids.add(m["id"])
+            if body_in.statuses and (m.get("status") or "Active") in body_in.statuses:
+                recipient_ids.add(m["id"])
+            if body_in.role_tags and any(t in (m.get("role_tags") or []) for t in body_in.role_tags):
+                recipient_ids.add(m["id"])
+
+    if not recipient_ids:
+        raise HTTPException(status_code=400, detail="No recipients matched the criteria")
+
+    # Fetch the recipients' emails (scoped to this church for safety)
+    rows = (
+        sb.table("members")
+        .select("id, first_name, last_name, preferred_name, email")
+        .eq("church_id", cid)
+        .in_("id", list(recipient_ids))
+        .execute()
+        .data
+    )
+
+    church = sb.table("churches").select("name").eq("id", cid).single().execute().data
+    church_name = church.get("name", "ShepherdsCore") if church else "ShepherdsCore"
+
+    sent = 0
+    skipped_no_email: list[str] = []
+    failed: list[str] = []
+    for m in rows:
+        if not m.get("email"):
+            skipped_no_email.append(f"{m['first_name']} {m['last_name']}")
+            continue
+        greeting_name = m.get("preferred_name") or m["first_name"]
+        personalized_body = body_in.body.replace("{{name}}", greeting_name).replace("{{first_name}}", m["first_name"])
+        html = f"""
+        <div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">
+          <div style=\"background: #1a1a2e; padding: 20px; text-align: center;\">
+            <h2 style=\"color: #0066CC; margin: 0;\">{church_name}</h2>
+          </div>
+          <div style=\"padding: 24px; line-height: 1.6;\">
+            {personalized_body.replace(chr(10), '<br>')}
+          </div>
+          <div style=\"padding: 16px; text-align: center; font-size: 12px; color: #999;\">
+            Sent via ShepherdsCore Cloud
+          </div>
+        </div>
+        """
+        ok = send_email(m["email"], body_in.subject, html)
+        if ok:
+            sent += 1
+        else:
+            failed.append(f"{m['first_name']} {m['last_name']}")
+
+    return {
+        "sent": sent,
+        "total_recipients": len(rows),
+        "skipped_no_email": skipped_no_email,
+        "failed": failed,
+        "configured": bool(settings.resend_api_key),
+    }
+
+
 @app.post("/email/giving-receipt")
 def send_giving_receipt(auth: AuthDep, sb: DBDep, member_id: str = Query(...), giving_id: str = Query(...)):
     """Send a giving receipt email to a member."""

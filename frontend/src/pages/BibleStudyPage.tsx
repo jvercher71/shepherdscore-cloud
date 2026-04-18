@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
@@ -13,6 +14,7 @@ const DAYS = ['', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const EMPTY = { name: '', description: '', meeting_day: '', meeting_time: '', location: '', teacher_id: null as string | null }
 
 export default function BibleStudyPage() {
+  const navigate = useNavigate()
   const [groups, setGroups] = useState<BibleStudyGroup[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [showModal, setShowModal] = useState(false)
@@ -107,6 +109,7 @@ export default function BibleStudyPage() {
                   <button className={styles.editBtn} onClick={() => openRoster(g)}>{g.member_count} enrolled</button>
                 </td>
                 <td>
+                  <button className={styles.editBtn} onClick={() => navigate(`/email?bible=${g.id}`)}>Email</button>
                   <button className={styles.editBtn} onClick={() => openEdit(g)}>Edit</button>
                   <button className={styles.deleteBtn} onClick={() => handleDelete(g.id)}>Delete</button>
                 </td>

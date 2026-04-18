@@ -137,13 +137,13 @@ export default function BillingPage() {
             'Giving records with split donations',
             'Events, attendance & calendar',
             'Bible study groups with rosters',
-            'AI pastoral insights & sermon prep',
+            'AI pastoral insights',
+            'Email your members individually or by group',
             'PDF reports & tax letters',
             'Member directory with photos',
             'Staff management with roles',
             'Smart search across all data',
             'CSV import & export',
-            'Email notifications',
             'Mobile responsive design',
           ].map(feature => (
             <div key={feature} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 14 }}>

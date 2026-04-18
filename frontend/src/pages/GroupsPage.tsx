@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import StatCard from '../components/StatCard'
 import styles from './PageShared.module.css'
@@ -17,6 +18,7 @@ interface Member { id: string; first_name: string; last_name: string }
 const EMPTY = { name: '', description: '', location: '' }
 
 export default function GroupsPage() {
+  const navigate = useNavigate()
   const [groups, setGroups] = useState<Group[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [showModal, setShowModal] = useState(false)
@@ -148,6 +150,7 @@ export default function GroupsPage() {
                   </button>
                 </td>
                 <td>
+                  <button className={styles.editBtn} onClick={() => navigate(`/email?group=${g.id}`)}>Email</button>
                   <button className={styles.editBtn} onClick={() => openEdit(g)}>Edit</button>
                   <button className={styles.deleteBtn} onClick={() => setDeleteConfirm(g.id)}>Delete</button>
                 </td>

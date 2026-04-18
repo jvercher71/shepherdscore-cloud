@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/ai/insights', label: 'AI Insights', icon: '🧠' },
   { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '✉' },
+  { to: '/email', label: 'Email', icon: '📧' },
   // Sermon Prep hidden per audit — reserved for future Pastoral Suite
   { to: '/staff', label: 'Manage Staff', icon: '👤' },
   { to: '/billing', label: 'Billing', icon: '💳' },
