@@ -1999,6 +1999,35 @@ Keep it concise but complete."""
     return {"draft": draft, "draft_type": body.draft_type}
 
 
+class CommDraftRefineIn(BaseModel):
+    draft_type: str = Field(max_length=50)
+    tone: str = Field(default="warm", max_length=20)
+    current_draft: str = Field(max_length=8000)
+    instruction: str = Field(max_length=1000)
+
+
+@app.post("/ai/communication-draft/refine")
+def ai_communication_draft_refine(body: CommDraftRefineIn, auth: AuthDep, sb: DBDep):
+    """Refine an existing draft per the user's instruction (shorten, soften tone, add a call-to-action, etc.)."""
+    church = sb.table("churches").select("name, pastor_name").eq("id", auth.church_id).single().execute().data
+    church_name = church.get("name", "Our Church") if church else "Our Church"
+    pastor_name = church.get("pastor_name", "") if church else ""
+
+    system_prompt = f"""You are a communications assistant for {church_name}.
+The user has an existing draft ({body.draft_type}, tone: {body.tone}) and wants it refined.
+Apply the user's instruction and return the FULL revised draft — not just the diff.
+Keep the original structure unless the instruction asks to change it.
+Do NOT use markdown formatting — plain text ready to copy.
+Pastor/Leader name: {pastor_name or 'Church Leadership'}"""
+
+    user_msg = (
+        f"CURRENT DRAFT:\n{body.current_draft}\n\n"
+        f"INSTRUCTION: {body.instruction}"
+    )
+    draft = ai_chat(system_prompt, user_msg, max_tokens=1500)
+    return {"draft": draft, "draft_type": body.draft_type}
+
+
 # ---------------------------------------------------------------------------
 # AI — Sermon Prep
 # ---------------------------------------------------------------------------

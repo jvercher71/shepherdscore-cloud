@@ -22,6 +22,8 @@ export default function CommDraftsPage() {
   const [tone, setTone] = useState('warm')
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(false)
+  const [refining, setRefining] = useState(false)
+  const [refineInstruction, setRefineInstruction] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -45,6 +47,28 @@ export default function CommDraftsPage() {
     }
   }
 
+  const refine = async () => {
+    if (!draft.trim()) return
+    if (!refineInstruction.trim()) { setError('Tell AI what to change (e.g. "shorten", "more casual", "add a call to RSVP")'); return }
+    setRefining(true)
+    setError('')
+    setCopied(false)
+    try {
+      const res = await api.post<{ draft: string }>('/ai/communication-draft/refine', {
+        draft_type: draftType,
+        tone,
+        current_draft: draft,
+        instruction: refineInstruction.trim(),
+      })
+      setDraft(res.draft)
+      setRefineInstruction('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to refine draft')
+    } finally {
+      setRefining(false)
+    }
+  }
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(draft)
     setCopied(true)
@@ -56,7 +80,7 @@ export default function CommDraftsPage() {
       <h1 className={styles.pageTitle}>AI Communication Drafts</h1>
       <p style={{ color: 'var(--color-text-secondary)', fontSize: 14, marginBottom: 24, maxWidth: 640 }}>
         Generate church announcements, event promotions, welcome emails, thank-you notes, and newsletters with AI.
-        Provide context and let AI draft it for you.
+        Write your own, edit the AI draft directly, or ask AI to refine it.
       </p>
 
       {error && <p className={styles.error}>{error}</p>}
@@ -93,27 +117,69 @@ export default function CommDraftsPage() {
             style={{ resize: 'vertical' }}
           />
         </div>
-        <button className={styles.addBtn} onClick={generate} disabled={loading}>
-          {loading ? 'Generating draft…' : 'Generate Draft'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className={styles.addBtn} onClick={generate} disabled={loading}>
+            {loading ? 'Generating draft…' : 'Generate Draft'}
+          </button>
+          {!draft && !loading && (
+            <button
+              type="button"
+              className={styles.editBtn}
+              onClick={() => setDraft(context.trim())}
+              disabled={!context.trim()}
+              title="Skip AI and edit your own draft below"
+            >
+              Write My Own
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Draft Output */}
-      {draft && (
+      {/* Draft Output — editable */}
+      {draft !== '' && (
         <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '24px 28px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <h3 style={{ fontWeight: 700, fontSize: 15 }}>
-              Generated {DRAFT_TYPES.find(t => t.value === draftType)?.label}
+              {DRAFT_TYPES.find(t => t.value === draftType)?.label} — edit freely
             </h3>
-            <button className={styles.secondaryBtn} onClick={copyToClipboard}>
-              {copied ? 'Copied!' : 'Copy to Clipboard'}
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className={styles.secondaryBtn} onClick={copyToClipboard}>
+                {copied ? 'Copied!' : 'Copy to Clipboard'}
+              </button>
+            </div>
           </div>
-          <div style={{
-            background: 'var(--color-bg)', borderRadius: 8, padding: '20px 24px',
-            whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.8, color: 'var(--color-text)',
-          }}>
-            {draft}
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={16}
+            style={{
+              width: '100%', background: 'var(--color-bg)', border: '1px solid var(--color-border)',
+              borderRadius: 8, padding: '16px 20px', fontSize: 14, lineHeight: 1.8,
+              color: 'var(--color-text)', fontFamily: 'inherit', resize: 'vertical',
+            }}
+          />
+
+          {/* Refine */}
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--color-border)' }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+              Refine with AI
+            </label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                value={refineInstruction}
+                onChange={e => setRefineInstruction(e.target.value)}
+                placeholder='e.g. "shorten to one paragraph", "make it more casual", "add a call to RSVP"'
+                onKeyDown={e => { if (e.key === 'Enter' && !refining) refine() }}
+                style={{
+                  flex: '1 1 280px', border: '1.5px solid var(--color-border)', borderRadius: 8,
+                  padding: '10px 12px', fontSize: 14,
+                }}
+              />
+              <button className={styles.addBtn} onClick={refine} disabled={refining || !draft.trim()}>
+                {refining ? 'Refining…' : 'Refine with AI'}
+              </button>
+            </div>
           </div>
         </div>
       )}
