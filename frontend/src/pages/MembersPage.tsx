@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
@@ -10,12 +11,19 @@ interface Member {
   photo_url: string; family_id: string | null; role_tags: string[]; created_at: string
 }
 
+interface Family {
+  id: string; family_name: string; address: string; phone: string
+  email: string; notes: string; created_at: string; member_count?: number
+}
+
 const EMPTY = {
   first_name: '', last_name: '', preferred_name: '', email: '', phone: '', cell_phone: '',
   address: '', city: '', state: '', zip: '', birthday: '', join_date: '',
   joined_by: '', status: 'Active', notes: '', photo_url: '', family_id: null as string | null,
   role_tags: [] as string[],
 }
+
+const EMPTY_FAMILY = { family_name: '', address: '', phone: '', email: '', notes: '' }
 
 const STATUS_OPTIONS = ['Active', 'Inactive', 'Visitor', 'Deceased', 'Transferred']
 const JOINED_BY_OPTIONS = ['', 'Baptism', 'Transfer', 'Profession of Faith', 'Restoration', 'Other']
@@ -24,8 +32,21 @@ const ROLE_TAG_OPTIONS = [
   'Worship Team', 'Youth Leader', 'Small Group Leader', 'Greeter', 'Usher',
 ]
 
+const memberInitials = (m: { first_name: string; last_name: string; preferred_name?: string }) => {
+  const f = (m.preferred_name || m.first_name || '').trim()
+  const l = (m.last_name || '').trim()
+  return `${f[0] || ''}${l[0] || ''}`.toUpperCase() || '?'
+}
+
 export default function MembersPage() {
+  const navigate = useNavigate()
   const [members, setMembers] = useState<Member[]>([])
+  const [families, setFamilies] = useState<Family[]>([])
+  const [view, setView] = useState<'list' | 'families' | 'directory'>('list')
+  const [expandedFamilyId, setExpandedFamilyId] = useState<string | null>(null)
+  const [showFamilyModal, setShowFamilyModal] = useState(false)
+  const [familyForm, setFamilyForm] = useState(EMPTY_FAMILY)
+  const [savingFamily, setSavingFamily] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Active')
   const [roleFilter, setRoleFilter] = useState('All')
@@ -44,17 +65,32 @@ export default function MembersPage() {
 
   const load = async () => {
     try {
-      const data = await api.get<Member[]>('/members')
-      setMembers(data)
-      // Refresh viewing member if open
+      const [mems, fams] = await Promise.all([
+        api.get<Member[]>('/members'),
+        api.get<Family[]>('/families').catch(() => [] as Family[]),
+      ])
+      setMembers(mems)
+      setFamilies(fams)
       if (viewing) {
-        const updated = data.find(m => m.id === viewing.id)
+        const updated = mems.find(m => m.id === viewing.id)
         if (updated) setViewing(updated)
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Load failed') }
     finally { setIsLoading(false) }
   }
   useEffect(() => { void load() }, [])
+
+  const handleAddFamily = async () => {
+    if (!familyForm.family_name.trim()) { setError('Family name is required'); return }
+    setSavingFamily(true); setError('')
+    try {
+      await api.post('/families', familyForm)
+      setShowFamilyModal(false)
+      setFamilyForm(EMPTY_FAMILY)
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Save family failed') }
+    finally { setSavingFamily(false) }
+  }
 
   const filtered = members.filter(m => {
     const matchSearch = `${m.first_name} ${m.last_name} ${m.preferred_name} ${m.email} ${m.phone}`.toLowerCase().includes(search.toLowerCase())
@@ -173,29 +209,76 @@ export default function MembersPage() {
     ) : null
   )
 
+  // Families view: group members by family_id using the current filters
+  const filteredFamilies = families.filter(f =>
+    !search.trim() || f.family_name.toLowerCase().includes(search.toLowerCase())
+  )
+  const membersByFamily = (fid: string) => filtered.filter(m => m.family_id === fid)
+  const unfamilied = filtered.filter(m => !m.family_id)
+
   return (
     <div>
-      <h1 className={styles.pageTitle}>Members</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+        <h1 className={styles.pageTitle} style={{ marginBottom: 0 }}>Members</h1>
+        <div style={{ display: 'inline-flex', border: '1.5px solid var(--color-border)', borderRadius: 10, overflow: 'hidden' }}>
+          {(['list', 'families', 'directory'] as const).map(v => {
+            const active = view === v
+            const label = v === 'list' ? 'List' : v === 'families' ? 'Families' : 'Directory'
+            return (
+              <button
+                key={v}
+                onClick={() => { setView(v); setViewing(null) }}
+                style={{
+                  background: active ? 'var(--color-accent)' : 'transparent',
+                  color: active ? '#fff' : 'var(--color-text)',
+                  border: 'none', padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
       {error && <p className={styles.error}>{error}</p>}
 
+      {/* Shared toolbar */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <input className={styles.searchInput} placeholder={view === 'families' ? 'Search families…' : 'Search members…'} value={search} onChange={e => setSearch(e.target.value)} style={{ minWidth: 220 }} />
+        {view !== 'families' && (
+          <>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
+              <option value="All">All Statuses</option>
+              {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
+              <option value="All">All Roles</option>
+              {ROLE_TAG_OPTIONS.map(r => <option key={r}>{r}</option>)}
+            </select>
+          </>
+        )}
+        <div style={{ flex: 1 }} />
+        {view === 'families' && (
+          <button className={styles.addBtn} onClick={() => { setFamilyForm(EMPTY_FAMILY); setShowFamilyModal(true) }}>+ Add Family</button>
+        )}
+        {view !== 'families' && (
+          <>
+            <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import CSV</button>
+            <button className={styles.secondaryBtn} onClick={handleExport}>Export CSV</button>
+            {view === 'directory' && (
+              <button className={styles.secondaryBtn} onClick={() => window.print()}>Print Directory</button>
+            )}
+            <button className={styles.addBtn} onClick={openAdd}>+ Add Member</button>
+          </>
+        )}
+      </div>
+
+      {/* ==================== LIST VIEW ==================== */}
+      {view === 'list' && (
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
         {/* Member List */}
         <div style={{ flex: viewing ? '0 0 55%' : '1' }}>
           <div className={styles.tableWrap}>
-            <div className={styles.toolbar}>
-              <input className={styles.searchInput} placeholder="Search members…" value={search} onChange={e => setSearch(e.target.value)} />
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
-                <option value="All">All Statuses</option>
-                {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-              </select>
-              <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
-                <option value="All">All Roles</option>
-                {ROLE_TAG_OPTIONS.map(r => <option key={r}>{r}</option>)}
-              </select>
-              <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import CSV</button>
-              <button className={styles.secondaryBtn} onClick={handleExport}>Export CSV</button>
-              <button className={styles.addBtn} onClick={openAdd}>+ Add Member</button>
-            </div>
             <table>
               <thead>
                 <tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr>
@@ -313,6 +396,204 @@ export default function MembersPage() {
           </div>
         )}
       </div>
+      )}
+
+      {/* ==================== FAMILIES VIEW ==================== */}
+      {view === 'families' && (
+        <div className={styles.tableWrap}>
+          {filteredFamilies.length === 0 && unfamilied.length === 0 ? (
+            <div className={styles.emptyState} style={{ padding: 40 }}>
+              {isLoading ? 'Loading…' : 'No families yet. Click "+ Add Family" to create one.'}
+            </div>
+          ) : (
+            <div>
+              {filteredFamilies.map(f => {
+                const mems = membersByFamily(f.id)
+                const expanded = expandedFamilyId === f.id
+                return (
+                  <div key={f.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <div
+                      onClick={() => setExpandedFamilyId(expanded ? null : f.id)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', cursor: 'pointer', background: expanded ? 'rgba(0,102,204,0.03)' : 'transparent' }}
+                    >
+                      <span style={{ fontSize: 14, color: 'var(--color-text-secondary)', width: 14 }}>{expanded ? '▾' : '▸'}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{f.family_name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                          {[f.phone, f.email, f.address].filter(Boolean).join(' · ') || 'No contact info'}
+                        </div>
+                      </div>
+                      <span className={`${styles.badge} ${styles.badgeBlue}`}>{mems.length} member{mems.length !== 1 ? 's' : ''}</span>
+                      <button
+                        className={styles.editBtn}
+                        onClick={e => { e.stopPropagation(); navigate(`/families/${f.id}`) }}
+                      >
+                        Open
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div style={{ background: 'var(--color-bg)', padding: '8px 18px 16px 46px' }}>
+                        {mems.length === 0 ? (
+                          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', padding: '12px 0' }}>
+                            No members linked to this family yet.
+                          </p>
+                        ) : (
+                          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {mems.map(m => (
+                              <li
+                                key={m.id}
+                                onClick={() => { setView('list'); setViewing(m) }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--color-white)', borderRadius: 8, cursor: 'pointer' }}
+                              >
+                                {m.photo_url ? (
+                                  <img src={m.photo_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                                ) : (
+                                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--color-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                                    {memberInitials(m)}
+                                  </div>
+                                )}
+                                <span style={{ fontWeight: 500, flex: 1 }}>{m.preferred_name || m.first_name} {m.last_name}</span>
+                                <span className={`${styles.badge} ${m.status === 'Active' ? styles.badgeGreen : styles.badgeBlue}`}>{m.status}</span>
+                                {m.role_tags && m.role_tags.length > 0 && (
+                                  <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{m.role_tags.slice(0, 2).join(', ')}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {unfamilied.length > 0 && (
+                <div style={{ borderTop: '2px solid var(--color-border)' }}>
+                  <div style={{ padding: '14px 18px', fontSize: 12, fontWeight: 700, letterSpacing: 0.6, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                    Members Without a Family ({unfamilied.length})
+                  </div>
+                  <ul style={{ listStyle: 'none', padding: '0 18px 18px', margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {unfamilied.map(m => (
+                      <li
+                        key={m.id}
+                        onClick={() => { setView('list'); setViewing(m) }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--color-bg)', borderRadius: 8, cursor: 'pointer' }}
+                      >
+                        {m.photo_url ? (
+                          <img src={m.photo_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--color-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                            {memberInitials(m)}
+                          </div>
+                        )}
+                        <span style={{ fontWeight: 500, flex: 1 }}>{m.preferred_name || m.first_name} {m.last_name}</span>
+                        <span className={`${styles.badge} ${m.status === 'Active' ? styles.badgeGreen : styles.badgeBlue}`}>{m.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================== DIRECTORY VIEW ==================== */}
+      {view === 'directory' && (
+        <div>
+          {filtered.length === 0 ? (
+            <p style={{ textAlign: 'center', color: 'var(--color-text-secondary)', padding: 40 }}>
+              {isLoading ? 'Loading…' : 'No members found'}
+            </p>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+              {filtered.map(m => {
+                const phone = m.cell_phone || m.phone
+                const displayName = `${m.preferred_name || m.first_name} ${m.last_name}`.trim()
+                return (
+                  <div key={m.id} style={{
+                    background: 'var(--color-white)', borderRadius: 16, padding: '20px 16px',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                  }}>
+                    {m.photo_url ? (
+                      <img src={m.photo_url} alt="" style={{ width: 96, height: 96, borderRadius: '50%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{
+                        width: 96, height: 96, borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #4FC3F7 0%, #29B6F6 50%, #0288D1 100%)',
+                        color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 36, fontWeight: 700, letterSpacing: 0.5,
+                        boxShadow: '0 2px 8px rgba(2,136,209,0.25)',
+                      }}>
+                        {memberInitials(m)}
+                      </div>
+                    )}
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 700 }}>{displayName}</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                        {(m.status || 'ACTIVE').toUpperCase()}
+                      </div>
+                      {m.role_tags && m.role_tags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', marginTop: 6 }}>
+                          {m.role_tags.slice(0, 2).map(t => (
+                            <span key={t} className={`${styles.badge} ${styles.badgeBlue}`} style={{ fontSize: 9 }}>{t}</span>
+                          ))}
+                          {m.role_tags.length > 2 && (
+                            <span className={styles.badge} style={{ fontSize: 9 }}>+{m.role_tags.length - 2}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, width: '100%', marginTop: 4 }}>
+                      {m.email
+                        ? <a href={`mailto:${m.email}`} style={{ flex: 1, textAlign: 'center', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 600, color: 'var(--color-text)', textDecoration: 'none' }}>✉ Email</a>
+                        : <button disabled style={{ flex: 1, padding: '8px 10px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: '#bbb' }}>✉ Email</button>}
+                      {phone
+                        ? <a href={`tel:${phone.replace(/[^0-9+]/g, '')}`} style={{ flex: 1, textAlign: 'center', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontWeight: 600, color: 'var(--color-text)', textDecoration: 'none' }}>☎ Call</a>
+                        : <button disabled style={{ flex: 1, padding: '8px 10px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: '#bbb' }}>☎ Call</button>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add Family Modal */}
+      {showFamilyModal && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modal}>
+            <h2 className={styles.modalTitle}>Add Family</h2>
+            <div className={styles.formGrid}>
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label>Family Name</label>
+                <input value={familyForm.family_name} onChange={e => setFamilyForm(p => ({ ...p, family_name: e.target.value }))} />
+              </div>
+              <div className={styles.field}>
+                <label>Phone</label>
+                <input value={familyForm.phone} onChange={e => setFamilyForm(p => ({ ...p, phone: e.target.value }))} />
+              </div>
+              <div className={styles.field}>
+                <label>Email</label>
+                <input type="email" value={familyForm.email} onChange={e => setFamilyForm(p => ({ ...p, email: e.target.value }))} />
+              </div>
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label>Address</label>
+                <input value={familyForm.address} onChange={e => setFamilyForm(p => ({ ...p, address: e.target.value }))} />
+              </div>
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label>Notes</label>
+                <textarea value={familyForm.notes} onChange={e => setFamilyForm(p => ({ ...p, notes: e.target.value }))} rows={3} />
+              </div>
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.cancelBtn} onClick={() => setShowFamilyModal(false)}>Cancel</button>
+              <button className={styles.saveBtn} onClick={handleAddFamily} disabled={savingFamily}>{savingFamily ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {showModal && (

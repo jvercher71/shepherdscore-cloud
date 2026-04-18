@@ -8,14 +8,13 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '◻' },
   { to: '/smart-search', label: 'Smart Search', icon: '🔍' },
   { to: '/members', label: 'Members', icon: '👥' },
-  { to: '/families', label: 'Families', icon: '🏠' },
+  // Families and Directory merged into Members tab (view toggle)
   { to: '/attendance', label: 'Attendance', icon: '📋' },
   { to: '/giving', label: 'Giving', icon: '💰' },
   { to: '/events', label: 'Events', icon: '📅' },
   { to: '/groups', label: 'Groups', icon: '🏘' },
   { to: '/bible-study', label: 'Bible Study', icon: '📖' },
   { to: '/reports', label: 'Reports', icon: '📊' },
-  { to: '/directory', label: 'Directory', icon: '📇' },
   { to: '/ai/insights', label: 'AI Insights', icon: '🧠' },
   { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '✉' },
   // Sermon Prep hidden per audit — reserved for future Pastoral Suite
