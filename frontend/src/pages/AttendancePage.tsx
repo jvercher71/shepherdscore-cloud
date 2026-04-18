@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import StatCard from '../components/StatCard'
 import styles from './PageShared.module.css'
 
 interface AttendanceRecord {
@@ -110,18 +111,9 @@ export default function AttendancePage() {
 
       {/* Overall Stats */}
       <div className={styles.statsGrid} style={{ marginBottom: 12 }}>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#0066CC' }}>{records.length}</div>
-          <div className={styles.statLabel}>Total Records</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#22C55E' }}>{overallMonthTotal}</div>
-          <div className={styles.statLabel}>This Month (All Services)</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#F59E0B' }}>{overallAvg}</div>
-          <div className={styles.statLabel}>Overall Avg Headcount</div>
-        </div>
+        <StatCard label="Total Records" value={records.length} icon="clipboard" color="#0066CC" />
+        <StatCard label="This Month (All Services)" value={overallMonthTotal} icon="calendar" color="#22C55E" />
+        <StatCard label="Overall Avg Headcount" value={overallAvg} icon="trending-up" color="#F59E0B" />
       </div>
 
       {/* Per Service Type Breakdown */}

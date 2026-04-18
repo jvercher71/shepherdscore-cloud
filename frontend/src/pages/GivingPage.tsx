@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import StatCard from '../components/StatCard'
 import styles from './PageShared.module.css'
 
 interface GivingRecord {
@@ -167,22 +168,22 @@ export default function GivingPage() {
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.statsGrid}>
-        <div className={styles.statCard} style={{ borderLeft: '4px solid #F59E0B' }}>
-          <div className={styles.statValue} style={{ color: '#F59E0B' }}>${todayTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-          <div className={styles.statLabel}>Today's Total ({todayRecords.length} records)</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#22C55E' }}>${totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-          <div className={styles.statLabel}>{rangeLabel || 'Total Giving'}</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#0066CC' }}>{filtered.length}</div>
-          <div className={styles.statLabel}>Transactions</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue}>${totalAll.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-          <div className={styles.statLabel}>All-Time Total</div>
-        </div>
+        <StatCard
+          label={`Today's Total (${todayRecords.length} records)`}
+          value={`$${todayTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          icon="dollar" color="#F59E0B"
+        />
+        <StatCard
+          label={rangeLabel || 'Total Giving'}
+          value={`$${totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          icon="heart" color="#22C55E"
+        />
+        <StatCard label="Transactions" value={filtered.length} icon="clipboard" color="#0066CC" />
+        <StatCard
+          label="All-Time Total"
+          value={`$${totalAll.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          icon="trending-up" color="#8B5CF6"
+        />
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>

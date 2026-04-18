@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import StatCard from '../components/StatCard'
 import styles from './PageShared.module.css'
 
 interface Group {
@@ -122,10 +123,7 @@ export default function GroupsPage() {
       <h1 className={styles.pageTitle}>Groups</h1>
       {error && <p className={styles.error}>{error}</p>}
       <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#8B5CF6' }}>{groups.length}</div>
-          <div className={styles.statLabel}>Total Groups</div>
-        </div>
+        <StatCard label="Total Groups" value={groups.length} icon="group" color="#8B5CF6" />
       </div>
       <div className={styles.tableWrap}>
         <div className={styles.toolbar}>

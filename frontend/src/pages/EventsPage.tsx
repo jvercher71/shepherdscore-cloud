@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import StatCard from '../components/StatCard'
 import styles from './PageShared.module.css'
 
 interface Event {
@@ -117,18 +118,9 @@ export default function EventsPage() {
       <h1 className={styles.pageTitle}>Events</h1>
       {error && <p className={styles.error}>{error}</p>}
       <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#F59E0B' }}>{upcoming.length}</div>
-          <div className={styles.statLabel}>Upcoming Events</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue} style={{ color: '#6B7280' }}>{past.length}</div>
-          <div className={styles.statLabel}>Past Events</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statValue}>{members.length}</div>
-          <div className={styles.statLabel}>Total Members</div>
-        </div>
+        <StatCard label="Upcoming Events" value={upcoming.length} icon="calendar" color="#F59E0B" />
+        <StatCard label="Past Events" value={past.length} icon="clipboard" color="#6B7280" />
+        <StatCard label="Total Members" value={members.length} icon="people" color="#0066CC" />
       </div>
 
       <div className={styles.tableWrap}>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import StatCard from '../components/StatCard'
 import styles from './PageShared.module.css'
 
 interface Stats {
@@ -113,19 +114,38 @@ export default function DashboardPage() {
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.statsGrid}>
-        <StatCard label="Total Members" value={stats?.total_members ?? '—'} color="#0066CC" sub={newMembers30 > 0 ? `+${newMembers30} this month` : undefined} />
+        <StatCard
+          label="Total Members"
+          value={stats?.total_members ?? '—'}
+          icon="people"
+          color="#0066CC"
+          subLabel={newMembers30 > 0 ? `+${newMembers30} this month` : undefined}
+        />
         <StatCard
           label="Giving This Month"
           value={stats ? `$${stats.total_giving_this_month.toLocaleString()}` : '—'}
-          color="#22C55E"
-          sub={
+          icon="heart"
+          color="#EF4444"
+          subLabel={
             weekDeltaPct === null
               ? undefined
               : `${weekDelta >= 0 ? '▲' : '▼'} ${Math.abs(weekDeltaPct).toFixed(0)}% vs last week`
           }
+          subColor={weekDeltaPct === null ? undefined : (weekDelta >= 0 ? '#22C55E' : '#DC2626')}
         />
-        <StatCard label="Upcoming Events" value={stats?.upcoming_events ?? '—'} color="#F59E0B" sub={upcoming[0] ? `Next: ${upcoming[0].name}` : undefined} />
-        <StatCard label="Active Groups" value={stats?.total_groups ?? '—'} color="#8B5CF6" />
+        <StatCard
+          label="Upcoming Events"
+          value={stats?.upcoming_events ?? '—'}
+          icon="calendar"
+          color="#8B5CF6"
+          subLabel={upcoming[0] ? `Next: ${upcoming[0].name}` : undefined}
+        />
+        <StatCard
+          label="Active Groups"
+          value={stats?.total_groups ?? '—'}
+          icon="group"
+          color="#22C55E"
+        />
       </div>
 
       {/* Two-column: giving chart + attendance chart */}
@@ -244,16 +264,6 @@ export default function DashboardPage() {
           )}
         </Panel>
       </div>
-    </div>
-  )
-}
-
-function StatCard({ label, value, color, sub }: { label: string; value: string | number; color: string; sub?: string }) {
-  return (
-    <div className={styles.statCard}>
-      <div className={styles.statValue} style={{ color }}>{value}</div>
-      <div className={styles.statLabel}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4, fontWeight: 600 }}>{sub}</div>}
     </div>
   )
 }
