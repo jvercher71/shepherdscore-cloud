@@ -1841,6 +1841,45 @@ Be specific with names. Keep suggestions practical and pastoral in tone. If ther
 
 
 # ---------------------------------------------------------------------------
+# AI — Saved Pastoral Insights
+# ---------------------------------------------------------------------------
+
+class SavedInsightIn(BaseModel):
+    title: str = ""
+    payload: Optional[dict] = None
+    raw: str = ""
+
+
+@app.get("/ai/pastoral-insights/saved")
+def list_saved_insights(auth: AuthDep, sb: DBDep):
+    return (
+        sb.table("saved_insights")
+        .select("*")
+        .eq("church_id", auth.church_id)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+
+
+@app.post("/ai/pastoral-insights/saved", status_code=201)
+def save_insight(body: SavedInsightIn, auth: AuthDep, sb: DBDep):
+    title = body.title.strip() or datetime.now(timezone.utc).strftime("Insights — %b %d, %Y %I:%M %p").replace(" 0", " ")
+    row = {
+        "church_id": auth.church_id,
+        "title": title,
+        "payload": body.payload or {},
+        "raw": body.raw or "",
+    }
+    return sb_insert(sb, "saved_insights", row)
+
+
+@app.delete("/ai/pastoral-insights/saved/{insight_id}", status_code=204)
+def delete_saved_insight(insight_id: str, auth: AuthDep, sb: DBDep):
+    sb_delete(sb, "saved_insights", auth.church_id, insight_id)
+
+
+# ---------------------------------------------------------------------------
 # AI — Report Summary
 # ---------------------------------------------------------------------------
 

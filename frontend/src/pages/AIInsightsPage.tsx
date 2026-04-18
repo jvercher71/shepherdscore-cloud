@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
@@ -13,10 +13,30 @@ interface Insights {
 }
 interface InsightsResponse { insights: Insights | null; raw: string | null }
 
+interface SavedInsight {
+  id: string
+  title: string
+  payload: Insights | Record<string, never>
+  raw: string
+  created_at: string
+}
+
 export default function AIInsightsPage() {
   const [data, setData] = useState<InsightsResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState<SavedInsight[]>([])
+  const [saving, setSaving] = useState(false)
+  const [savedOpen, setSavedOpen] = useState(false)
+
+  const loadSaved = async () => {
+    try {
+      const rows = await api.get<SavedInsight[]>('/ai/pastoral-insights/saved')
+      setSaved(rows)
+    } catch { /* ignore — saved list is optional */ }
+  }
+
+  useEffect(() => { void loadSaved() }, [])
 
   const runInsights = async () => {
     setLoading(true)
@@ -31,6 +51,44 @@ export default function AIInsightsPage() {
     }
   }
 
+  const saveCurrent = async () => {
+    if (!data) return
+    setSaving(true)
+    try {
+      await api.post('/ai/pastoral-insights/saved', {
+        title: '',
+        payload: data.insights ?? {},
+        raw: data.raw ?? '',
+      })
+      await loadSaved()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save insight')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const viewSaved = (row: SavedInsight) => {
+    const payload = row.payload as Insights | Record<string, never>
+    const hasInsights = payload && 'summary' in payload
+    setData({
+      insights: hasInsights ? (payload as Insights) : null,
+      raw: row.raw || null,
+    })
+    setSavedOpen(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const deleteSaved = async (id: string) => {
+    if (!confirm('Delete this saved insight?')) return
+    try {
+      await api.delete(`/ai/pastoral-insights/saved/${id}`)
+      setSaved(prev => prev.filter(r => r.id !== id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed')
+    }
+  }
+
   const insights = data?.insights
 
   return (
@@ -41,9 +99,48 @@ export default function AIInsightsPage() {
         actionable pastoral care insights.
       </p>
 
-      <button className={styles.addBtn} onClick={runInsights} disabled={loading} style={{ marginBottom: 28 }}>
-        {loading ? 'Analyzing your church data…' : 'Generate Pastoral Insights'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 28 }}>
+        <button className={styles.addBtn} onClick={runInsights} disabled={loading}>
+          {loading ? 'Analyzing your church data…' : 'Generate Pastoral Insights'}
+        </button>
+        {data && (
+          <button className={styles.editBtn} onClick={saveCurrent} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Insight'}
+          </button>
+        )}
+        <button className={styles.editBtn} onClick={() => setSavedOpen(o => !o)}>
+          {savedOpen ? 'Hide' : 'View'} Saved ({saved.length})
+        </button>
+      </div>
+
+      {savedOpen && (
+        <div style={{ marginBottom: 28 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Saved Insights</h2>
+          {saved.length === 0 ? (
+            <p style={{ fontSize: 13, color: '#888' }}>No saved insights yet. Generate one and hit Save to keep it for later.</p>
+          ) : (
+            <div className={styles.tableWrap}>
+              <table>
+                <thead>
+                  <tr><th>Title</th><th>Saved</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {saved.map(row => (
+                    <tr key={row.id}>
+                      <td style={{ fontWeight: 600 }}>{row.title || 'Untitled'}</td>
+                      <td>{new Date(row.created_at).toLocaleString()}</td>
+                      <td>
+                        <button className={styles.editBtn} onClick={() => viewSaved(row)}>View</button>
+                        <button className={styles.deleteBtn} onClick={() => deleteSaved(row.id)}>Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && <p className={styles.error}>{error}</p>}
 
