@@ -28,6 +28,7 @@ export default function AttendancePage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [filterType, setFilterType] = useState('All')
+  const [rangePreset, setRangePreset] = useState<'today' | 'week' | 'month' | 'year' | 'all'>('all')
   const [viewing, setViewing] = useState<AttendanceRecord | null>(null)
 
   const load = async () => {
@@ -75,8 +76,28 @@ export default function AttendancePage() {
     return { type, count: all.length, monthTotal, monthCount: month.length, avg }
   })
 
+  // Date range presets
+  const now = new Date()
+  const todayStr = now.toISOString().slice(0, 10)
+  const weekStart = (() => {
+    const d = new Date(now); d.setDate(d.getDate() - d.getDay())
+    return d.toISOString().slice(0, 10)
+  })()
+  const monthStart = `${now.toISOString().slice(0, 7)}-01`
+  const yearStart = `${now.getFullYear()}-01-01`
+  const rangeStart =
+    rangePreset === 'today' ? todayStr :
+    rangePreset === 'week' ? weekStart :
+    rangePreset === 'month' ? monthStart :
+    rangePreset === 'year' ? yearStart :
+    null
+
   // Filtered records
-  const filtered = filterType === 'All' ? records : records.filter(r => r.service_type === filterType)
+  const filtered = records.filter(r => {
+    if (filterType !== 'All' && r.service_type !== filterType) return false
+    if (rangeStart && r.date < rangeStart) return false
+    return true
+  })
 
   // Overall stats
   const overallMonthTotal = thisMonthRecords.reduce((s, r) => s + r.headcount, 0)
@@ -130,6 +151,34 @@ export default function AttendancePage() {
           </div>
         </div>
       )}
+
+      {/* Date range chips */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {([
+          ['today', 'Today'],
+          ['week', 'This Week'],
+          ['month', 'This Month'],
+          ['year', 'This Year'],
+          ['all', 'All Time'],
+        ] as const).map(([key, label]) => {
+          const active = rangePreset === key
+          return (
+            <button
+              key={key}
+              onClick={() => setRangePreset(key)}
+              style={{
+                border: `1.5px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                background: active ? 'var(--color-accent)' : 'transparent',
+                color: active ? '#fff' : 'var(--color-text)',
+                borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
 
       {/* Records Table */}
       <div className={styles.tableWrap}>

@@ -27,6 +27,7 @@ export default function GivingPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [viewing, setViewing] = useState<GivingRecord | null>(null)
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [rangePreset, setRangePreset] = useState<'today' | 'week' | 'month' | 'year' | 'all' | 'custom'>('month')
   const [showCatModal, setShowCatModal] = useState(false)
   const [newCat, setNewCat] = useState('')
 
@@ -44,7 +45,44 @@ export default function GivingPage() {
   }
   useEffect(() => { load().catch(e => setError(e.message)) }, [])
 
-  const filtered = filterMonth ? records.filter(r => r.date.slice(0, 7) === filterMonth) : records
+  // Preset date ranges (inclusive). null bound => open-ended.
+  const now = new Date()
+  const todayStr = now.toISOString().slice(0, 10)
+  const weekStart = (() => {
+    const d = new Date(now)
+    d.setDate(d.getDate() - d.getDay()) // Sunday as start of week
+    return d.toISOString().slice(0, 10)
+  })()
+  const yearStart = `${now.getFullYear()}-01-01`
+  let rangeStart: string | null = null
+  let rangeEnd: string | null = todayStr
+  let rangeLabel = ''
+  if (rangePreset === 'today') { rangeStart = todayStr; rangeLabel = 'Today' }
+  else if (rangePreset === 'week') { rangeStart = weekStart; rangeLabel = 'This Week' }
+  else if (rangePreset === 'month' && filterMonth) {
+    rangeStart = `${filterMonth}-01`
+    // last day of the month
+    const [y, m] = filterMonth.split('-').map(Number)
+    const last = new Date(y, m, 0).getDate()
+    rangeEnd = `${filterMonth}-${String(last).padStart(2, '0')}`
+    rangeLabel = new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })
+  } else if (rangePreset === 'year') { rangeStart = yearStart; rangeLabel = String(now.getFullYear()) }
+  else if (rangePreset === 'all') { rangeStart = null; rangeEnd = null; rangeLabel = 'All Time' }
+  else if (rangePreset === 'custom' && filterMonth) {
+    rangeStart = `${filterMonth}-01`
+    const [y, m] = filterMonth.split('-').map(Number)
+    const last = new Date(y, m, 0).getDate()
+    rangeEnd = `${filterMonth}-${String(last).padStart(2, '0')}`
+    rangeLabel = new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })
+  }
+
+  const inRange = (date: string) => {
+    if (rangeStart && date < rangeStart) return false
+    if (rangeEnd && date > rangeEnd) return false
+    return true
+  }
+
+  const filtered = records.filter(r => inRange(r.date))
   const totalFiltered = filtered.reduce((s, r) => s + r.amount, 0)
   const totalAll = records.reduce((s, r) => s + r.amount, 0)
 
@@ -135,7 +173,7 @@ export default function GivingPage() {
         </div>
         <div className={styles.statCard}>
           <div className={styles.statValue} style={{ color: '#22C55E' }}>${totalFiltered.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-          <div className={styles.statLabel}>{filterMonth ? `${new Date(filterMonth + '-02').toLocaleString('default', { month: 'long', year: 'numeric' })}` : 'Total Giving'}</div>
+          <div className={styles.statLabel}>{rangeLabel || 'Total Giving'}</div>
         </div>
         <div className={styles.statCard}>
           <div className={styles.statValue} style={{ color: '#0066CC' }}>{filtered.length}</div>
@@ -147,12 +185,46 @@ export default function GivingPage() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {([
+          ['today', 'Today'],
+          ['week', 'This Week'],
+          ['month', 'This Month'],
+          ['year', 'This Year'],
+          ['all', 'All Time'],
+        ] as const).map(([key, label]) => {
+          const active = rangePreset === key
+          return (
+            <button
+              key={key}
+              onClick={() => {
+                setRangePreset(key)
+                if (key === 'month') setFilterMonth(new Date().toISOString().slice(0, 7))
+              }}
+              style={{
+                border: `1.5px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                background: active ? 'var(--color-accent)' : 'transparent',
+                color: active ? '#fff' : 'var(--color-text)',
+                borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+        <input
+          type="month"
+          value={filterMonth}
+          onChange={e => { setFilterMonth(e.target.value); setRangePreset('custom') }}
+          style={{ padding: '6px 10px', borderRadius: 999, border: '1.5px solid var(--color-border)', fontSize: 13 }}
+        />
+      </div>
+
       <div className={styles.tableWrap}>
         <div className={styles.toolbar}>
           <span style={{ fontWeight: 600, fontSize: 15 }}>Giving Records</span>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14 }} />
-            <button className={styles.secondaryBtn} onClick={() => setFilterMonth('')}>All Time</button>
             <button className={styles.secondaryBtn} onClick={() => setShowCatModal(true)}>Manage Categories</button>
             <button className={styles.addBtn} onClick={openAdd}>+ Record Giving</button>
           </div>
