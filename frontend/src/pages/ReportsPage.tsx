@@ -475,7 +475,7 @@ export default function ReportsPage() {
     setAttMonth(new Date().getMonth() + 1)
     setAttService('All')
     scrollTo('attendance-report-section')
-    setTimeout(() => void runAttendance(), 50)
+    setTimeout(() => void runAttendanceReport(), 50)
   }
   const quickGrowthTrends = () => {
     setAiPrompt(`Members who joined by month in ${CURRENT_YEAR}`)

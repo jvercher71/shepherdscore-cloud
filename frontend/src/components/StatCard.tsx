@@ -1,5 +1,3 @@
-import type { ReactNode } from 'react'
-
 type IconKind =
   | 'people' | 'calendar' | 'heart' | 'trending-up' | 'dollar'
   | 'clipboard' | 'home' | 'book' | 'document' | 'chart-bar'
