@@ -588,6 +588,7 @@ class EventIn(BaseModel):
     date: str  # ISO date
     event_time: str = ""
     event_type: str = "Sunday Service"
+    location: str = ""
     description: str = ""
 
 
@@ -656,6 +657,7 @@ def list_group_members(group_id: str, auth: AuthDep, sb: DBDep):
 class GroupIn(BaseModel):
     name: str
     description: str = ""
+    location: str = ""
 
 
 @app.get("/groups")

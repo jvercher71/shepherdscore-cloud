@@ -4,13 +4,13 @@ import styles from './PageShared.module.css'
 
 interface Event {
   id: string; name: string; date: string; event_time: string
-  event_type: string; description: string; created_at: string
+  event_type: string; location: string; description: string; created_at: string
 }
 
 interface Member { id: string; first_name: string; last_name: string }
 
 const EVENT_TYPES = ['Sunday Service', 'Wednesday Service', 'Bible Study', 'Youth Event', 'Special Event', 'Meeting', 'Outreach', 'Other']
-const EMPTY = { name: '', date: new Date().toISOString().slice(0, 10), event_time: '', event_type: 'Sunday Service', description: '' }
+const EMPTY = { name: '', date: new Date().toISOString().slice(0, 10), event_time: '', event_type: 'Sunday Service', location: '', description: '' }
 
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([])
@@ -46,7 +46,7 @@ export default function EventsPage() {
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true) }
   const openEdit = (ev: Event) => {
     setEditing(ev)
-    setForm({ name: ev.name, date: ev.date.slice(0, 10), event_time: ev.event_time || '', event_type: ev.event_type || 'Sunday Service', description: ev.description })
+    setForm({ name: ev.name, date: ev.date.slice(0, 10), event_time: ev.event_time || '', event_type: ev.event_type || 'Sunday Service', location: ev.location || '', description: ev.description })
     setShowModal(true)
   }
 
@@ -137,11 +137,11 @@ export default function EventsPage() {
         </div>
         <table>
           <thead>
-            <tr><th>Event</th><th>Type</th><th>Date</th><th>Time</th><th>Attendance</th><th></th></tr>
+            <tr><th>Event</th><th>Type</th><th>Date</th><th>Time</th><th>Location</th><th>Attendance</th><th></th></tr>
           </thead>
           <tbody>
             {events.length === 0 ? (
-              <tr><td colSpan={6} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No events yet'}</td></tr>
+              <tr><td colSpan={7} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No events yet'}</td></tr>
             ) : events.map(ev => (
               <tr key={ev.id}>
                 <td style={{ fontWeight: 600 }}>{ev.name}</td>
@@ -152,6 +152,7 @@ export default function EventsPage() {
                   </span>
                 </td>
                 <td>{ev.event_time || '—'}</td>
+                <td>{ev.location || '—'}</td>
                 <td>
                   <button className={styles.editBtn} onClick={() => openAttendance(ev)}>
                     Take Attendance
@@ -190,6 +191,10 @@ export default function EventsPage() {
                 <select value={form.event_type} onChange={e => setForm(p => ({ ...p, event_type: e.target.value }))}>
                   {EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
                 </select>
+              </div>
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label>Location</label>
+                <input value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Sanctuary, Fellowship Hall, 123 Main St, etc." />
               </div>
               <div className={`${styles.field} ${styles.fieldFull}`}>
                 <label>Description</label>

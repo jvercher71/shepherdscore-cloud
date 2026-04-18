@@ -6,13 +6,14 @@ interface Group {
   id: string
   name: string
   description: string
+  location: string
   member_count?: number
   created_at: string
 }
 
 interface Member { id: string; first_name: string; last_name: string }
 
-const EMPTY = { name: '', description: '' }
+const EMPTY = { name: '', description: '', location: '' }
 
 export default function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([])
@@ -48,7 +49,7 @@ export default function GroupsPage() {
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true) }
   const openEdit = (g: Group) => {
     setEditing(g)
-    setForm({ name: g.name, description: g.description })
+    setForm({ name: g.name, description: g.description, location: g.location || '' })
     setShowModal(true)
   }
 
@@ -133,15 +134,16 @@ export default function GroupsPage() {
         </div>
         <table>
           <thead>
-            <tr><th>Group Name</th><th>Description</th><th>Members</th><th></th></tr>
+            <tr><th>Group Name</th><th>Description</th><th>Location</th><th>Members</th><th></th></tr>
           </thead>
           <tbody>
             {groups.length === 0 ? (
-              <tr><td colSpan={4} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No groups yet'}</td></tr>
+              <tr><td colSpan={5} className={styles.emptyState}>{isLoading ? 'Loading…' : 'No groups yet'}</td></tr>
             ) : groups.map(g => (
               <tr key={g.id}>
                 <td style={{ fontWeight: 600 }}>{g.name}</td>
                 <td>{g.description || '—'}</td>
+                <td>{g.location || '—'}</td>
                 <td>
                   <button className={styles.editBtn} onClick={() => openMembers(g)}>
                     {g.member_count ?? 0} member{(g.member_count ?? 0) !== 1 ? 's' : ''} — Manage
@@ -166,6 +168,10 @@ export default function GroupsPage() {
               <div className={`${styles.field} ${styles.fieldFull}`}>
                 <label>Group Name</label>
                 <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label>Location</label>
+                <input value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} placeholder="Where the group meets" />
               </div>
               <div className={`${styles.field} ${styles.fieldFull}`}>
                 <label>Description</label>
