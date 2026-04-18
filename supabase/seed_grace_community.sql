@@ -180,7 +180,8 @@ BEGIN
     INSERT INTO public.group_members (group_id, member_id)
     SELECT v_group_ids[v_i], id FROM public.members
     WHERE church_id = v_church_id AND status = 'Active'
-    ORDER BY random() LIMIT (10 + (v_i * 4));
+    ORDER BY random() LIMIT (10 + (v_i * 4))
+    ON CONFLICT (group_id, member_id) DO NOTHING;
   END LOOP;
 
   -- 5. Bible Study Groups --------------------------------------------------
@@ -198,7 +199,8 @@ BEGIN
     INSERT INTO public.bible_study_members (group_id, member_id)
     SELECT v_bible_ids[v_i], id FROM public.members
     WHERE church_id = v_church_id AND status = 'Active'
-    ORDER BY random() LIMIT (8 + v_i * 3);
+    ORDER BY random() LIMIT (8 + v_i * 3)
+    ON CONFLICT (group_id, member_id) DO NOTHING;
   END LOOP;
 
   -- 6. Events + 7. Attendance ---------------------------------------------
@@ -281,7 +283,8 @@ BEGIN
     INSERT INTO public.event_attendance (event_id, member_id)
     SELECT v_event_rec.id, id FROM public.members
     WHERE church_id = v_church_id AND status = 'Active'
-    ORDER BY random() LIMIT (60 + (random() * 40)::int);
+    ORDER BY random() LIMIT (60 + (random() * 40)::int)
+    ON CONFLICT (event_id, member_id) DO NOTHING;
   END LOOP;
 
   -- 9. Giving --------------------------------------------------------------
