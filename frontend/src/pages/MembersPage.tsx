@@ -7,22 +7,28 @@ interface Member {
   email: string; phone: string; cell_phone: string; address: string
   city: string; state: string; zip: string; birthday: string | null
   join_date: string | null; joined_by: string; status: string; notes: string
-  photo_url: string; family_id: string | null; created_at: string
+  photo_url: string; family_id: string | null; role_tags: string[]; created_at: string
 }
 
 const EMPTY = {
   first_name: '', last_name: '', preferred_name: '', email: '', phone: '', cell_phone: '',
   address: '', city: '', state: '', zip: '', birthday: '', join_date: '',
   joined_by: '', status: 'Active', notes: '', photo_url: '', family_id: null as string | null,
+  role_tags: [] as string[],
 }
 
 const STATUS_OPTIONS = ['Active', 'Inactive', 'Visitor', 'Deceased', 'Transferred']
 const JOINED_BY_OPTIONS = ['', 'Baptism', 'Transfer', 'Profession of Faith', 'Restoration', 'Other']
+const ROLE_TAG_OPTIONS = [
+  'Bible Study Leader', 'Volunteer', 'Staff', 'Deacon', 'Elder',
+  'Worship Team', 'Youth Leader', 'Small Group Leader', 'Greeter', 'Usher',
+]
 
 export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Active')
+  const [roleFilter, setRoleFilter] = useState('All')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Member | null>(null)
   const [viewing, setViewing] = useState<Member | null>(null)
@@ -53,7 +59,8 @@ export default function MembersPage() {
   const filtered = members.filter(m => {
     const matchSearch = `${m.first_name} ${m.last_name} ${m.preferred_name} ${m.email} ${m.phone}`.toLowerCase().includes(search.toLowerCase())
     const matchStatus = statusFilter === 'All' || m.status === statusFilter
-    return matchSearch && matchStatus
+    const matchRole = roleFilter === 'All' || (m.role_tags || []).includes(roleFilter)
+    return matchSearch && matchStatus && matchRole
   })
 
   const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true) }
@@ -65,9 +72,18 @@ export default function MembersPage() {
       address: m.address || '', city: m.city || '', state: m.state || '', zip: m.zip || '',
       birthday: m.birthday || '', join_date: m.join_date || '', joined_by: m.joined_by || '',
       status: m.status || 'Active', notes: m.notes || '', photo_url: m.photo_url || '',
-      family_id: m.family_id,
+      family_id: m.family_id, role_tags: m.role_tags || [],
     })
     setShowModal(true)
+  }
+
+  const toggleFormTag = (tag: string) => {
+    setForm(p => ({
+      ...p,
+      role_tags: p.role_tags.includes(tag)
+        ? p.role_tags.filter(t => t !== tag)
+        : [...p.role_tags, tag],
+    }))
   }
 
   const handleSave = async () => {
@@ -172,6 +188,10 @@ export default function MembersPage() {
                 <option value="All">All Statuses</option>
                 {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
               </select>
+              <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
+                <option value="All">All Roles</option>
+                {ROLE_TAG_OPTIONS.map(r => <option key={r}>{r}</option>)}
+              </select>
               <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import CSV</button>
               <button className={styles.secondaryBtn} onClick={handleExport}>Export CSV</button>
               <button className={styles.addBtn} onClick={openAdd}>+ Add Member</button>
@@ -265,6 +285,18 @@ export default function MembersPage() {
               <InfoRow label="Joined By" value={viewing.joined_by} />
             </div>
 
+            {/* Roles & Ministries */}
+            {viewing.role_tags && viewing.role_tags.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Roles &amp; Ministries</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {viewing.role_tags.map(t => (
+                    <span key={t} className={`${styles.badge} ${styles.badgeBlue}`}>{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Notes */}
             {viewing.notes && (
               <div>
@@ -347,6 +379,30 @@ export default function MembersPage() {
                 <select value={form.joined_by} onChange={e => setForm(p => ({ ...p, joined_by: e.target.value }))}>
                   {JOINED_BY_OPTIONS.map(j => <option key={j} value={j}>{j || '— Select —'}</option>)}
                 </select>
+              </div>
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label>Roles &amp; Ministries</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  {ROLE_TAG_OPTIONS.map(tag => {
+                    const active = form.role_tags.includes(tag)
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleFormTag(tag)}
+                        style={{
+                          border: `1.5px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          background: active ? 'var(--color-accent)' : 'transparent',
+                          color: active ? '#fff' : 'var(--color-text)',
+                          borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {tag}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               <div className={`${styles.field} ${styles.fieldFull}`}>
                 <label>Notes</label>

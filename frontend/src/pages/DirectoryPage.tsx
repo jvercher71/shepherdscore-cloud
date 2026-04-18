@@ -6,14 +6,21 @@ interface DirectoryMember {
   id: string; first_name: string; last_name: string; preferred_name: string
   phone: string; cell_phone: string; email: string; address: string
   city: string; state: string; zip: string; status: string; photo_url: string
+  role_tags: string[]
 }
 
 interface ChurchInfo { name?: string; logo_url?: string }
+
+const ROLE_TAG_OPTIONS = [
+  'Bible Study Leader', 'Volunteer', 'Staff', 'Deacon', 'Elder',
+  'Worship Team', 'Youth Leader', 'Small Group Leader', 'Greeter', 'Usher',
+]
 
 export default function DirectoryPage() {
   const [members, setMembers] = useState<DirectoryMember[]>([])
   const [church, setChurch] = useState<ChurchInfo>({})
   const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('All')
   const [showPhotos, setShowPhotos] = useState(true)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -26,9 +33,11 @@ export default function DirectoryPage() {
     api.get<ChurchInfo>('/settings').then(setChurch).catch(() => {})
   }, [])
 
-  const filtered = members.filter(m =>
-    `${m.first_name} ${m.last_name} ${m.preferred_name} ${m.email} ${m.phone}`.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = members.filter(m => {
+    const matchSearch = `${m.first_name} ${m.last_name} ${m.preferred_name} ${m.email} ${m.phone}`.toLowerCase().includes(search.toLowerCase())
+    const matchRole = roleFilter === 'All' || (m.role_tags || []).includes(roleFilter)
+    return matchSearch && matchRole
+  })
 
   const formatAddress = (m: DirectoryMember) => {
     const parts = [m.address, m.city && m.state ? `${m.city}, ${m.state}` : m.city || m.state, m.zip].filter(Boolean)
@@ -48,6 +57,10 @@ export default function DirectoryPage() {
         {error && <p className={styles.error}>{error}</p>}
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           <input className={styles.searchInput} placeholder="Search directory…" value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
+          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ border: '1.5px solid var(--color-border)', borderRadius: 8, padding: '8px 12px', fontSize: 14 }}>
+            <option value="All">All Roles</option>
+            {ROLE_TAG_OPTIONS.map(r => <option key={r}>{r}</option>)}
+          </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
             <input type="checkbox" checked={showPhotos} onChange={e => setShowPhotos(e.target.checked)} />
             Include Photos

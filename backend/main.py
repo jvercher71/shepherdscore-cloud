@@ -351,6 +351,7 @@ class MemberIn(BaseModel):
     notes: str = Field(default="", max_length=5000)
     photo_url: str = ""
     family_id: Optional[str] = None
+    role_tags: list[str] = Field(default_factory=list)
 
 
 class MemberUpdateIn(BaseModel):
@@ -371,6 +372,7 @@ class MemberUpdateIn(BaseModel):
     notes: Optional[str] = None
     photo_url: Optional[str] = None
     family_id: Optional[str] = None
+    role_tags: Optional[list[str]] = None
 
 
 @app.get("/members")
@@ -2219,7 +2221,7 @@ def get_directory(auth: AuthDep, sb: DBDep):
     """Return all active members sorted by last name for directory/printing."""
     rows = (
         sb.table("members")
-        .select("id, first_name, last_name, preferred_name, phone, cell_phone, email, address, city, state, zip, family_id, status, photo_url")
+        .select("id, first_name, last_name, preferred_name, phone, cell_phone, email, address, city, state, zip, family_id, status, photo_url, role_tags")
         .eq("church_id", auth.church_id)
         .eq("status", "Active")
         .order("last_name")
