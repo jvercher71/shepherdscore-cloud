@@ -113,7 +113,7 @@ BEGIN
       church_id, first_name, last_name, preferred_name,
       email, phone, cell_phone, address, city, state, zip,
       birthday, join_date, joined_by, status, notes,
-      family_id, role_tags
+      family_id, role_tags, photo_url
     )
     VALUES (
       v_church_id,
@@ -161,6 +161,14 @@ BEGIN
         WHEN v_i % 6 = 0 THEN ARRAY['Small Group Leader']
         WHEN v_i % 5 = 0 THEN ARRAY['Greeter']
         ELSE ARRAY[]::text[]
+      END,
+      -- Photo: assign a stock avatar to ~1/3 of members (so the directory has
+      -- a realistic mix of photos and initial-fallbacks). pravatar.cc serves
+      -- consented stock portraits indexed img=1..70.
+      CASE
+        WHEN v_i % 3 = 0
+          THEN 'https://i.pravatar.cc/300?img=' || ((v_i % 70) + 1)::text
+        ELSE ''
       END
     );
   END LOOP;
