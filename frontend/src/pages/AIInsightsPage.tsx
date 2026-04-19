@@ -2,23 +2,54 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
-interface Attention { name: string; reason: string; suggestion: string }
-interface NewMember { name: string; joined: string; status: string; suggestion: string }
-interface Insights {
-  needs_attention: Attention[]
-  new_member_followup: NewMember[]
-  positive_highlights: string[]
-  recommendations: string[]
-  summary: string
-}
-interface InsightsResponse { insights: Insights | null; raw: string | null }
+interface InsightsResponse { insights: null; raw: string | null }
 
 interface SavedInsight {
   id: string
   title: string
-  payload: Insights | Record<string, never>
+  payload: Record<string, unknown> | null
   raw: string
   created_at: string
+}
+
+/** Render narrative text with **bold** markdown converted to <strong>, and
+ * paragraphs separated by blank lines. No full markdown parser needed. */
+function NarrativeReport({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
+  return (
+    <div style={{
+      background: 'var(--color-white)', borderRadius: 12, padding: '24px 28px',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.06)', fontSize: 14, lineHeight: 1.75,
+      color: 'var(--color-text)',
+    }}>
+      {paragraphs.map((p, i) => <Paragraph key={i} text={p} />)}
+    </div>
+  )
+}
+
+function Paragraph({ text }: { text: string }) {
+  // Split on **bold** runs, rendering them as <strong>. A heading-only paragraph
+  // (the whole paragraph is a bold run) gets bumped up to a section heading.
+  const boldOnly = /^\*\*(.+)\*\*$/s.exec(text.trim())
+  if (boldOnly) {
+    return (
+      <h3 style={{
+        fontSize: 14, fontWeight: 800, margin: '22px 0 8px',
+        color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: 0.4,
+      }}>
+        {boldOnly[1]}
+      </h3>
+    )
+  }
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  return (
+    <p style={{ margin: '0 0 12px', whiteSpace: 'pre-wrap' }}>
+      {parts.map((seg, i) => {
+        const m = /^\*\*([^*]+)\*\*$/.exec(seg)
+        return m ? <strong key={i}>{m[1]}</strong> : <span key={i}>{seg}</span>
+      })}
+    </p>
+  )
 }
 
 export default function AIInsightsPage() {
@@ -33,7 +64,7 @@ export default function AIInsightsPage() {
     try {
       const rows = await api.get<SavedInsight[]>('/ai/pastoral-insights/saved')
       setSaved(rows)
-    } catch { /* ignore — saved list is optional */ }
+    } catch { /* ignore */ }
   }
 
   useEffect(() => { void loadSaved() }, [])
@@ -52,13 +83,13 @@ export default function AIInsightsPage() {
   }
 
   const saveCurrent = async () => {
-    if (!data) return
+    if (!data?.raw) return
     setSaving(true)
     try {
       await api.post('/ai/pastoral-insights/saved', {
         title: '',
-        payload: data.insights ?? {},
-        raw: data.raw ?? '',
+        payload: null,
+        raw: data.raw,
       })
       await loadSaved()
     } catch (e) {
@@ -69,12 +100,7 @@ export default function AIInsightsPage() {
   }
 
   const viewSaved = (row: SavedInsight) => {
-    const payload = row.payload as Insights | Record<string, never>
-    const hasInsights = payload && 'summary' in payload
-    setData({
-      insights: hasInsights ? (payload as Insights) : null,
-      raw: row.raw || null,
-    })
+    setData({ insights: null, raw: row.raw || null })
     setSavedOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -89,24 +115,29 @@ export default function AIInsightsPage() {
     }
   }
 
-  const insights = data?.insights
+  const copyToClipboard = () => {
+    if (data?.raw) navigator.clipboard.writeText(data.raw)
+  }
 
   return (
     <div>
       <h1 className={styles.pageTitle}>AI Pastoral Insights</h1>
       <p style={{ color: 'var(--color-text-secondary)', fontSize: 14, marginBottom: 24, maxWidth: 640 }}>
-        AI analyzes your member engagement data — attendance patterns, giving trends, and group connections — to surface
-        actionable pastoral care insights.
+        AI analyzes your member engagement data — attendance patterns, giving trends, and group connections —
+        and writes a pastoral care report your team can read and act on.
       </p>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 28 }}>
         <button className={styles.addBtn} onClick={runInsights} disabled={loading}>
           {loading ? 'Analyzing your church data…' : 'Generate Pastoral Insights'}
         </button>
-        {data && (
-          <button className={styles.editBtn} onClick={saveCurrent} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Insight'}
-          </button>
+        {data?.raw && (
+          <>
+            <button className={styles.editBtn} onClick={saveCurrent} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Insight'}
+            </button>
+            <button className={styles.secondaryBtn} onClick={copyToClipboard}>Copy</button>
+          </>
         )}
         <button className={styles.editBtn} onClick={() => setSavedOpen(o => !o)}>
           {savedOpen ? 'Hide' : 'View'} Saved ({saved.length})
@@ -144,108 +175,7 @@ export default function AIInsightsPage() {
 
       {error && <p className={styles.error}>{error}</p>}
 
-      {data && !insights && data.raw && (
-        <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.7 }}>
-          {data.raw}
-        </div>
-      )}
-
-      {insights && (
-        <>
-          {/* Executive Summary */}
-          <div style={{ background: 'linear-gradient(135deg, #0066CC 0%, #0052a3 100%)', borderRadius: 12, padding: '24px 28px', marginBottom: 24, color: '#fff' }}>
-            <h3 style={{ fontWeight: 700, fontSize: 15, marginBottom: 10, opacity: 0.85 }}>Executive Summary</h3>
-            <p style={{ fontSize: 15, lineHeight: 1.7 }}>{insights.summary}</p>
-          </div>
-
-          {/* Needs Attention */}
-          {insights.needs_attention.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: '#DC2626' }}>
-                Needs Attention ({insights.needs_attention.length})
-              </h2>
-              <div className={styles.tableWrap}>
-                <table>
-                  <thead>
-                    <tr><th>Member</th><th>Reason</th><th>Suggested Action</th></tr>
-                  </thead>
-                  <tbody>
-                    {insights.needs_attention.map((item, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600 }}>{item.name}</td>
-                        <td style={{ color: '#DC2626' }}>{item.reason}</td>
-                        <td>{item.suggestion}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* New Member Follow-up */}
-          {insights.new_member_followup.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: '#0066CC' }}>
-                New Member Follow-up ({insights.new_member_followup.length})
-              </h2>
-              <div className={styles.tableWrap}>
-                <table>
-                  <thead>
-                    <tr><th>Member</th><th>Joined</th><th>Status</th><th>Suggestion</th></tr>
-                  </thead>
-                  <tbody>
-                    {insights.new_member_followup.map((item, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600 }}>{item.name}</td>
-                        <td>{item.joined}</td>
-                        <td>
-                          <span className={`${styles.badge} ${styles.badgeBlue}`}>{item.status}</span>
-                        </td>
-                        <td>{item.suggestion}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Positive Highlights */}
-          {insights.positive_highlights.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: '#16a34a' }}>
-                Positive Highlights
-              </h2>
-              <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {insights.positive_highlights.map((h, i) => (
-                    <li key={i} style={{ fontSize: 14, lineHeight: 1.6 }}>{h}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-
-          {/* Recommendations */}
-          {insights.recommendations.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Recommendations</h2>
-              <div style={{ display: 'grid', gap: 12 }}>
-                {insights.recommendations.map((rec, i) => (
-                  <div key={i} style={{
-                    background: 'var(--color-white)', borderRadius: 12, padding: '16px 20px',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)', fontSize: 14, lineHeight: 1.6,
-                    borderLeft: '4px solid var(--color-accent)',
-                  }}>
-                    {rec}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {data?.raw && <NarrativeReport text={data.raw} />}
     </div>
   )
 }

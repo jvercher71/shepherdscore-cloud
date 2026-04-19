@@ -1980,37 +1980,34 @@ MEMBER ENGAGEMENT (last ~90 days):
         data_summary += f"- {name}: joined {joined}, attended {att_count}/{len(events[:20])} recent events, gave ${give_total:.0f} (90d), in a group: {'yes' if in_group else 'NO'}\n"
 
     system_prompt = """You are a pastoral care AI assistant for a church management system.
-Analyze the member engagement data and provide actionable pastoral insights.
-Focus on:
-1. Members who may need outreach (declining attendance, stopped giving, not connected to any group)
-2. New members who haven't been integrated yet (no group, low attendance)
-3. Positive trends worth celebrating
-4. Specific, actionable recommendations for the pastoral team
+Analyze the member engagement data and write a pastoral insights report for the church's leadership team.
 
-Format your response as JSON with this structure:
-{
-  "needs_attention": [{"name": "...", "reason": "...", "suggestion": "..."}],
-  "new_member_followup": [{"name": "...", "joined": "...", "status": "...", "suggestion": "..."}],
-  "positive_highlights": ["..."],
-  "recommendations": ["..."],
-  "summary": "A 2-3 sentence executive summary of the church's overall engagement health."
-}
+Write it as a readable narrative using short paragraphs and bold section headings. Do NOT return JSON,
+markdown code fences, tables, or bullet-only lists. Plain prose with the following sections, in order:
 
-Be specific with names. Keep suggestions practical and pastoral in tone. If there are no members, still return valid JSON with empty arrays and a helpful summary."""
+**Executive Summary** — 2-3 sentences on the church's overall engagement health.
 
-    result = ai_chat(system_prompt, data_summary, max_tokens=3000)
+**Members Who May Need Attention** — name specific people, describe the concern (declining attendance,
+no giving in the last 90 days, not connected to any group, etc.) and suggest a specific next step.
 
-    # Try to parse as JSON, fall back to raw text
-    try:
-        # Strip markdown code fences if present
-        cleaned = result.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-            cleaned = cleaned.rsplit("```", 1)[0]
-        parsed = json.loads(cleaned)
-        return {"insights": parsed, "raw": None}
-    except (json.JSONDecodeError, IndexError):
-        return {"insights": None, "raw": result}
+**New Member Follow-up** — name recently-joined members and what the pastoral team can do to help
+them feel welcomed and integrated.
+
+**Positive Highlights** — celebrate what's going well, with specific examples.
+
+**Recommendations** — 3-5 concrete, practical suggestions the pastoral team can act on this week.
+
+Be warm, pastoral, and specific. Use member names. Keep the whole report under ~500 words."""
+
+    result = ai_chat(system_prompt, data_summary, max_tokens=1800)
+
+    # Strip any stray markdown code fences, just in case the model wraps the output.
+    cleaned = result.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        cleaned = cleaned.rsplit("```", 1)[0].strip()
+
+    return {"insights": None, "raw": cleaned}
 
 
 # ---------------------------------------------------------------------------
