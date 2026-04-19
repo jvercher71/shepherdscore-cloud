@@ -5,7 +5,7 @@ import { api } from '../lib/api'
 import styles from './Layout.module.css'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: '◻' },
+  { to: '/', label: 'Dashboard', icon: '🏠' },
   { to: '/smart-search', label: 'Smart Search', icon: '🔍' },
   { to: '/members', label: 'Members', icon: '👥' },
   // Families and Directory merged into Members tab (view toggle)
@@ -16,7 +16,7 @@ const NAV_ITEMS = [
   { to: '/bible-study', label: 'Bible Study', icon: '📖' },
   { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/ai/insights', label: 'AI Insights', icon: '🧠' },
-  { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '✉' },
+  { to: '/ai/comm-drafts', label: 'AI Drafts', icon: '📝' },
   { to: '/email', label: 'Email', icon: '📧' },
   // Sermon Prep hidden per audit — reserved for future Pastoral Suite
   { to: '/staff', label: 'Manage Staff', icon: '👤' },

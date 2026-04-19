@@ -54,6 +54,8 @@ export default function DashboardPage() {
     return out
   })()
   const maxGiving = Math.max(1, ...givingByMonth.map(r => r.total))
+  const minGivingRaw = Math.min(...givingByMonth.map(r => r.total).filter(v => v > 0))
+  const minGiving = isFinite(minGivingRaw) ? minGivingRaw : 0
 
   // Sunday attendance, last 8 records
   const sundayAttendance = [...attendance]
@@ -61,6 +63,21 @@ export default function DashboardPage() {
     .sort((x, y) => x.date.localeCompare(y.date))
     .slice(-8)
   const maxAttendance = Math.max(1, ...sundayAttendance.map(a => a.headcount))
+  const minAttendance = Math.min(...sundayAttendance.map(a => a.headcount))
+
+  /** Scale a value to a bar height % that highlights variance.
+   * Smallest non-zero value renders ~28% tall; largest renders 100%. */
+  const scaleHeight = (val: number, min: number, max: number) => {
+    if (val <= 0) return 4
+    if (max <= min) return 100
+    return 28 + ((val - min) / (max - min)) * 72
+  }
+
+  /** Period-over-period % change between two values. */
+  const delta = (curr: number, prev: number): number | null => {
+    if (!prev) return null
+    return ((curr - prev) / prev) * 100
+  }
 
   // Upcoming events (next 5)
   const upcoming = [...events]
@@ -155,12 +172,18 @@ export default function DashboardPage() {
             <EmptyNote>No giving recorded yet.</EmptyNote>
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 180, padding: '8px 0' }}>
-              {givingByMonth.map(r => {
-                const pct = Math.max(4, (r.total / maxGiving) * 100)
+              {givingByMonth.map((r, i) => {
+                const pct = scaleHeight(r.total, minGiving, maxGiving)
+                const d = i > 0 ? delta(r.total, givingByMonth[i - 1].total) : null
                 return (
-                  <div key={r.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-                      {r.total > 0 ? `$${Math.round(r.total).toLocaleString()}` : ''}
+                  <div key={r.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    {d !== null ? (
+                      <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
+                        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
+                      </div>
+                    ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>
+                      {r.total > 0 ? `$${Math.round(r.total).toLocaleString()}` : '—'}
                     </div>
                     <div style={{
                       width: '100%', height: `${pct}%`, minHeight: 4,
@@ -180,10 +203,16 @@ export default function DashboardPage() {
             <EmptyNote>No Sunday Service attendance recorded yet.</EmptyNote>
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 180, padding: '8px 0' }}>
-              {sundayAttendance.map(a => {
-                const pct = Math.max(4, (a.headcount / maxAttendance) * 100)
+              {sundayAttendance.map((a, i) => {
+                const pct = scaleHeight(a.headcount, minAttendance, maxAttendance)
+                const d = i > 0 ? delta(a.headcount, sundayAttendance[i - 1].headcount) : null
                 return (
-                  <div key={a.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                  <div key={a.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    {d !== null ? (
+                      <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
+                        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
+                      </div>
+                    ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>{a.headcount}</div>
                     <div style={{
                       width: '100%', height: `${pct}%`, minHeight: 4,
