@@ -301,9 +301,9 @@ BEGIN
         VALUES (
           v_church_id, v_member_rec.id,
           round((random() * 450 + 25)::numeric, 2),
-          v_categories[(1 + (random() * 6)::int)],
+          v_categories[1 + floor(random() * array_length(v_categories, 1))::int],
           (v_start + (v_i || ' months')::interval + ((random() * 27)::int || ' days')::interval)::date,
-          v_methods[(1 + (random() * 6)::int)],
+          v_methods[1 + floor(random() * array_length(v_methods, 1))::int],
           ''
         );
       ELSIF v_rand < 0.90 THEN
@@ -319,9 +319,9 @@ BEGIN
         VALUES (
           v_church_id, v_member_rec.id,
           round((random() * 150 + 10)::numeric, 2),
-          v_categories[(1 + (random() * 6)::int)],
+          v_categories[1 + floor(random() * array_length(v_categories, 1))::int],
           (v_start + (v_i || ' months')::interval + ((random() * 27)::int || ' days')::interval)::date,
-          v_methods[(1 + (random() * 6)::int)],
+          v_methods[1 + floor(random() * array_length(v_methods, 1))::int],
           'Split gift'
         );
       END IF;
@@ -334,7 +334,7 @@ BEGIN
     VALUES (
       v_church_id, NULL,
       round((random() * 100 + 5)::numeric, 2),
-      (ARRAY['General Offering','Food Pantry','Special Event'])[(1 + (random() * 3)::int)],
+      (ARRAY['General Offering','Food Pantry','Special Event'])[1 + floor(random() * 3)::int],
       (v_start + ((random() * 1095)::int || ' days')::interval)::date,
       'Cash',
       'Anonymous'
