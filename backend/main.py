@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
+    supabase_service_role_key: str = ""  # optional — used to bypass RLS for staff management
     groq_api_key: str = ""
     stripe_secret_key: str = ""
     stripe_price_id: str = "price_1TMdpmQ1M88c4OEyX5BeLKjT"
@@ -83,6 +84,17 @@ def make_db(token: str) -> Client:
     """Create a Supabase client scoped to the user's JWT."""
     client = create_client(settings.supabase_url, settings.supabase_anon_key)
     client.postgrest.auth(token)
+    return client
+
+
+def make_admin_db() -> Optional[Client]:
+    """Create a Supabase client that bypasses RLS using the service role key.
+    Returns None when SUPABASE_SERVICE_ROLE_KEY is not configured."""
+    key = settings.supabase_service_role_key.strip()
+    if not key:
+        return None
+    client = create_client(settings.supabase_url, key)
+    client.postgrest.auth(key)
     return client
 
 
@@ -1289,18 +1301,27 @@ def _staff_table_missing(exc: Exception) -> bool:
     return "church_staff" in msg and ("does not exist" in msg or "schema cache" in msg)
 
 
-def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
-    """Make sure the current user has a row in church_staff for this church so
-    that subsequent INSERT/UPDATE calls pass the 'admins full access' RLS
-    check. Safe to call repeatedly — no-op if the row already exists.
+def _staff_db(auth: AuthContext, sb: Client) -> Client:
+    """Return the best Supabase client for church_staff writes. Prefers the
+    service-role client (bypasses RLS) when SUPABASE_SERVICE_ROLE_KEY is set,
+    otherwise falls back to the user's JWT-scoped client and relies on the
+    'first user self-register' / 'admins full access' policies."""
+    admin = make_admin_db()
+    return admin if admin is not None else sb
 
-    Uses the 'church_staff: first user self-register' RLS policy, which only
-    succeeds when the table is empty for this church (i.e. the caller is the
-    first/creator). If there are other rows but the caller has none, we raise
-    a clear 403 rather than a confusing 500 from a blocked insert."""
+
+def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
+    """Make sure the current user has a row in church_staff for this church.
+    Safe to call repeatedly — no-op if the row already exists.
+
+    With a service role key configured, this bypasses RLS entirely and just
+    inserts the caller if missing. Without one, it relies on the 'first
+    user self-register' RLS policy which only succeeds when the table is
+    empty for this church."""
+    write_db = _staff_db(auth, sb)
     try:
         mine = (
-            sb.table("church_staff")
+            write_db.table("church_staff")
             .select("id, role")
             .eq("church_id", auth.church_id)
             .eq("user_id", auth.user_id)
@@ -1317,24 +1338,25 @@ def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
     if mine:
         return
 
-    # Caller has no row. Are there any rows for this church at all?
-    any_rows = (
-        sb.table("church_staff")
-        .select("id")
-        .eq("church_id", auth.church_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if any_rows:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not registered as staff on this church. Ask an existing admin to add you.",
+    # Caller has no row. If there are other rows and we're not using a service
+    # role client, surface a clear 403 (they can't self-register under RLS).
+    if make_admin_db() is None:
+        any_rows = (
+            write_db.table("church_staff")
+            .select("id")
+            .eq("church_id", auth.church_id)
+            .limit(1)
+            .execute()
+            .data
         )
+        if any_rows:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not registered as staff on this church. Ask an existing admin to add you.",
+            )
 
-    # Table is empty for this church — self-register as Admin.
     try:
-        sb_insert(sb, "church_staff", {
+        sb_insert(write_db, "church_staff", {
             "church_id": auth.church_id,
             "user_id": auth.user_id,
             "email": auth.email,
@@ -1345,7 +1367,11 @@ def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
     except HTTPException as e:
         raise HTTPException(
             status_code=e.status_code,
-            detail=f"Could not self-register as Admin ({e.detail}). Apply migration 8 or contact support.",
+            detail=(
+                f"Could not self-register as Admin ({e.detail}). "
+                "Set SUPABASE_SERVICE_ROLE_KEY on the backend to bypass RLS for staff management, "
+                "or make sure migration 8 has been applied."
+            ),
         )
 
 
@@ -1381,12 +1407,14 @@ def invite_staff(body: InviteStaffIn, auth: AuthDep, sb: DBDep):
     # Guarantee the caller has an Admin row so the RLS check on INSERT passes.
     _ensure_caller_registered(auth, sb)
 
+    write_db = _staff_db(auth, sb)
+
     role = body.role.strip()
     if role not in ("Admin", "Staff", "View-Only"):
         raise HTTPException(status_code=400, detail="Invalid role. Use Admin, Staff, or View-Only")
 
     # Check if already exists
-    existing = sb.table("church_staff").select("id").eq("church_id", auth.church_id).eq("email", body.email.strip().lower()).execute().data
+    existing = write_db.table("church_staff").select("id").eq("church_id", auth.church_id).eq("email", body.email.strip().lower()).execute().data
     if existing:
         raise HTTPException(status_code=400, detail="This email is already on your staff list")
 
@@ -1394,7 +1422,7 @@ def invite_staff(body: InviteStaffIn, auth: AuthDep, sb: DBDep):
     import uuid
     placeholder_uid = str(uuid.uuid4())
 
-    return sb_insert(sb, "church_staff", {
+    return sb_insert(write_db, "church_staff", {
         "church_id": auth.church_id,
         "user_id": placeholder_uid,
         "email": body.email.strip().lower(),
@@ -1414,19 +1442,21 @@ class UpdateStaffIn(BaseModel):
 def update_staff(staff_id: str, body: UpdateStaffIn, auth: AuthDep, sb: DBDep):
     """Update a staff member's role, name, or active status. Admin only."""
     _require_admin(auth)
+    _ensure_caller_registered(auth, sb)
     data = body.model_dump(exclude_unset=True)
     if "role" in data and data["role"] not in ("Admin", "Staff", "View-Only"):
         raise HTTPException(status_code=400, detail="Invalid role")
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    return sb_update(sb, "church_staff", auth.church_id, staff_id, data)
+    return sb_update(_staff_db(auth, sb), "church_staff", auth.church_id, staff_id, data)
 
 
 @app.delete("/staff/{staff_id}", status_code=204)
 def remove_staff(staff_id: str, auth: AuthDep, sb: DBDep):
     """Remove a staff member. Admin only."""
     _require_admin(auth)
-    sb_delete(sb, "church_staff", auth.church_id, staff_id)
+    _ensure_caller_registered(auth, sb)
+    sb_delete(_staff_db(auth, sb), "church_staff", auth.church_id, staff_id)
 
 
 @app.post("/staff/setup-owner")
