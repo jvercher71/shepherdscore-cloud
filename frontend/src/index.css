@@ -27,6 +27,16 @@ body {
   min-height: 100vh;
 }
 
+/* Prevent any stray element from pushing the page wider than the viewport */
+html, body, #root {
+  max-width: 100%;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -43,6 +53,11 @@ input, select, textarea {
 
 /* Mobile: tighten inline-styled elements globally */
 @media (max-width: 768px) {
+  /* Hard stop: nothing should cause horizontal scroll on phones */
+  html, body, #root {
+    overflow-x: hidden;
+  }
+
   h2 { font-size: 15px !important; }
   h3 { font-size: 13px !important; }
 
@@ -72,4 +87,54 @@ input, select, textarea {
   /* Member profile panel: full width on mobile */
   [style*="flex: 0 0 42%"] { flex: 1 1 100% !important; }
   [style*="flex: 0 0 55%"] { flex: 1 1 100% !important; }
+
+  /* Sticky side panel becomes normal flow on mobile so it doesn't fight scroll */
+  [style*="position: sticky"] {
+    position: static !important;
+  }
+
+  /* Inline-styled grid columns: any minmax wider than the phone viewport
+     would force horizontal scroll. Collapse them to a single column. */
+  [style*="minmax(200px"],
+  [style*="minmax(220px"],
+  [style*="minmax(240px"],
+  [style*="minmax(260px"],
+  [style*="minmax(280px"],
+  [style*="minmax(300px"],
+  [style*="minmax(320px"],
+  [style*="minmax(340px"],
+  [style*="minmax(360px"],
+  [style*="minmax(380px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Two-column inline grids → stack on mobile */
+  [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Inline min-width values that exceed a phone's usable width cause overflow.
+     Cap everything >= 200px so fields/inputs shrink to fit. */
+  [style*="min-width: 200"],
+  [style*="min-width: 220"],
+  [style*="min-width: 240"],
+  [style*="min-width: 260"],
+  [style*="min-width: 280"],
+  [style*="min-width: 300"],
+  [style*="min-width: 320"],
+  [style*="min-width: 340"],
+  [style*="min-width: 360"],
+  [style*="min-width: 380"] {
+    min-width: 0 !important;
+  }
+}
+
+/* Extra-small phones (< 480px): collapse dense grids further */
+@media (max-width: 480px) {
+  [style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  [style*="repeat(3, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
 }
