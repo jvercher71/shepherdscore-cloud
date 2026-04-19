@@ -65,12 +65,11 @@ export default function DashboardPage() {
   const maxAttendance = Math.max(1, ...sundayAttendance.map(a => a.headcount))
   const minAttendance = Math.min(...sundayAttendance.map(a => a.headcount))
 
-  /** Scale a value to a bar height % that highlights variance.
-   * Smallest non-zero value renders ~28% tall; largest renders 100%. */
-  const scaleHeight = (val: number, min: number, max: number) => {
-    if (val <= 0) return 4
-    if (max <= min) return 100
-    return 28 + ((val - min) / (max - min)) * 72
+  /** Scale a value to a bar-height % using a true zero baseline so month-to-month
+   * changes are honestly visible. A month that is 50% of the max renders 50% tall. */
+  const scaleHeight = (val: number, _min: number, max: number) => {
+    if (val <= 0 || max <= 0) return 4
+    return Math.max(4, (val / max) * 100)
   }
 
   /** Period-over-period % change between two values. */
