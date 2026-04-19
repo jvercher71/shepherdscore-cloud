@@ -12,7 +12,7 @@
 -- it even if not every migration has been applied yet.
 -- =============================================================================
 
-DO $reset$
+DO $$
 DECLARE
   v_church_id uuid;
 BEGIN
@@ -62,4 +62,4 @@ BEGIN
 
   RAISE NOTICE 'Reset complete.';
 END
-$reset$;
+$$;

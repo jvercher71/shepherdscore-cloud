@@ -21,7 +21,7 @@
 -- differently.
 -- =============================================================================
 
-DO $seed$
+DO $$
 DECLARE
   v_church_id uuid;
   v_today     date := current_date;
@@ -351,4 +351,4 @@ BEGIN
   RAISE NOTICE 'Attendance: %', (SELECT count(*) FROM public.attendance WHERE church_id = v_church_id);
   RAISE NOTICE 'Giving rows: %',(SELECT count(*) FROM public.giving WHERE church_id = v_church_id);
 END
-$seed$;
+$$;
