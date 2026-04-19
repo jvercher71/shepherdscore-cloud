@@ -72,6 +72,10 @@ DECLARE
   v_j int;
   v_date date;
   v_rand float;
+  v_month int;
+  v_mult numeric;
+  v_gift_prob float;
+  v_two_gift_prob float;
 BEGIN
   -- 1. Locate the church ---------------------------------------------------
   SELECT id INTO v_church_id
@@ -230,13 +234,19 @@ BEGIN
       v_event_rec.id,
       'Sunday Service',
       v_date,
-      -- headcount 70-140 with some seasonal bump around easter/christmas
-      (80 + (random() * 40)::int
+      -- Realistic seasonality: high around Christmas / Easter / back-to-school,
+      -- summer slump in July, post-holiday slump in early January.
+      GREATEST(40, (80 + (random() * 30)::int
         + CASE
-            WHEN extract(month from v_date) IN (12) AND extract(day from v_date) >= 20 THEN 30
-            WHEN extract(month from v_date) = 3 AND extract(day from v_date) BETWEEN 20 AND 31 THEN 25
-            WHEN extract(month from v_date) = 4 AND extract(day from v_date) <= 10 THEN 25
-            ELSE 0 END)::int,
+            WHEN extract(month from v_date) = 12 AND extract(day from v_date) >= 20 THEN 35
+            WHEN extract(month from v_date) = 3 AND extract(day from v_date) >= 20 THEN 30
+            WHEN extract(month from v_date) = 4 AND extract(day from v_date) <= 10 THEN 30
+            WHEN extract(month from v_date) = 5 AND extract(day from v_date) BETWEEN 8 AND 14 THEN 18  -- Mother's Day
+            WHEN extract(month from v_date) = 9 THEN 14   -- back-to-school
+            WHEN extract(month from v_date) = 7 THEN -22  -- July summer slump
+            WHEN extract(month from v_date) = 8 AND extract(day from v_date) <= 15 THEN -14
+            WHEN extract(month from v_date) = 1 AND extract(day from v_date) <= 14 THEN -18  -- post-holiday
+            ELSE 0 END))::int,
       ''
     );
 
@@ -289,28 +299,46 @@ BEGIN
 
   -- 9. Giving --------------------------------------------------------------
   -- Each active member: 0-3 gifts per month for ~36 months, varied category/method.
+  -- Seasonal multipliers create realistic year-over-year patterns:
+  --   Dec +40% (year-end), Apr +30% (Easter), Nov/May +10%, Sep +5%
+  --   Jul -25% (summer), Aug -15%, Jan -15% (post-holiday)
   FOR v_member_rec IN
     SELECT id, first_name FROM public.members
     WHERE church_id = v_church_id AND status IN ('Active','Inactive','Transferred')
   LOOP
     FOR v_i IN 0..36 LOOP
+      v_month := extract(month from (v_start + (v_i || ' months')::interval))::int;
+      v_mult := CASE
+        WHEN v_month = 12 THEN 1.40
+        WHEN v_month = 11 THEN 1.10
+        WHEN v_month = 4  THEN 1.30
+        WHEN v_month = 5  THEN 1.10
+        WHEN v_month = 9  THEN 1.05
+        WHEN v_month = 7  THEN 0.75
+        WHEN v_month = 8  THEN 0.85
+        WHEN v_month = 1  THEN 0.85
+        ELSE 1.00
+      END;
+      -- Higher months also see a higher participation rate.
+      v_gift_prob     := 0.65 + (v_mult - 1.0) * 0.20;
+      v_two_gift_prob := v_gift_prob + 0.18;
+
       v_rand := random();
-      -- 70% of months get a gift, 20% get two gifts, 10% none
-      IF v_rand < 0.70 THEN
+      IF v_rand < v_gift_prob THEN
         INSERT INTO public.giving (church_id, member_id, amount, category, date, method, notes)
         VALUES (
           v_church_id, v_member_rec.id,
-          round((random() * 450 + 25)::numeric, 2),
+          round(((random() * 450 + 25) * v_mult)::numeric, 2),
           v_categories[1 + floor(random() * array_length(v_categories, 1))::int],
           (v_start + (v_i || ' months')::interval + ((random() * 27)::int || ' days')::interval)::date,
           v_methods[1 + floor(random() * array_length(v_methods, 1))::int],
           ''
         );
-      ELSIF v_rand < 0.90 THEN
+      ELSIF v_rand < v_two_gift_prob THEN
         INSERT INTO public.giving (church_id, member_id, amount, category, date, method, notes)
         VALUES (
           v_church_id, v_member_rec.id,
-          round((random() * 200 + 10)::numeric, 2),
+          round(((random() * 200 + 10) * v_mult)::numeric, 2),
           'Tithe',
           (v_start + (v_i || ' months')::interval + ((random() * 27)::int || ' days')::interval)::date,
           'Online/EFT', ''
@@ -318,7 +346,7 @@ BEGIN
         INSERT INTO public.giving (church_id, member_id, amount, category, date, method, notes)
         VALUES (
           v_church_id, v_member_rec.id,
-          round((random() * 150 + 10)::numeric, 2),
+          round(((random() * 150 + 10) * v_mult)::numeric, 2),
           v_categories[1 + floor(random() * array_length(v_categories, 1))::int],
           (v_start + (v_i || ' months')::interval + ((random() * 27)::int || ' days')::interval)::date,
           v_methods[1 + floor(random() * array_length(v_methods, 1))::int],
