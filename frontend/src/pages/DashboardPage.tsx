@@ -173,26 +173,33 @@ export default function DashboardPage() {
           {giving.length === 0 ? (
             <EmptyNote>No giving recorded yet.</EmptyNote>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 180, padding: '8px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, height: 230, padding: '4px 0' }}>
               {givingByMonth.map((r, i) => {
                 const pct = scaleHeight(r.total, minGiving, maxGiving)
                 const d = i > 0 ? delta(r.total, givingByMonth[i - 1].total) : null
                 return (
-                  <div key={r.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                    {d !== null ? (
-                      <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
-                        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
+                  <div key={r.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    {/* Header: delta + value (fixed height) */}
+                    <div style={{ height: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      {d !== null ? (
+                        <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
+                          {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
+                        </div>
+                      ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>
+                        {r.total > 0 ? `$${Math.round(r.total).toLocaleString()}` : '—'}
                       </div>
-                    ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>
-                      {r.total > 0 ? `$${Math.round(r.total).toLocaleString()}` : '—'}
                     </div>
-                    <div style={{
-                      width: '100%', height: `${pct}%`, minHeight: 4,
-                      background: 'linear-gradient(180deg, #22C55E 0%, #16a34a 100%)',
-                      borderRadius: '6px 6px 0 0',
-                    }} />
-                    <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontWeight: 600 }}>{r.label}</div>
+                    {/* Bar track — fills remaining vertical space, bar fills pct of it */}
+                    <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', minHeight: 0 }}>
+                      <div style={{
+                        width: '100%', height: `${pct}%`, minHeight: 4,
+                        background: 'linear-gradient(180deg, #22C55E 0%, #16a34a 100%)',
+                        borderRadius: '6px 6px 0 0',
+                      }} />
+                    </div>
+                    {/* Month label (fixed height) */}
+                    <div style={{ height: 18, fontSize: 11, color: 'var(--color-text-secondary)', fontWeight: 600, marginTop: 4 }}>{r.label}</div>
                   </div>
                 )
               })}
@@ -204,24 +211,28 @@ export default function DashboardPage() {
           {sundayAttendance.length === 0 ? (
             <EmptyNote>No Sunday Service attendance recorded yet.</EmptyNote>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 180, padding: '8px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, height: 230, padding: '4px 0' }}>
               {sundayAttendance.map((a, i) => {
                 const pct = scaleHeight(a.headcount, minAttendance, maxAttendance)
                 const d = i > 0 ? delta(a.headcount, sundayAttendance[i - 1].headcount) : null
                 return (
-                  <div key={a.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                    {d !== null ? (
-                      <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
-                        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
-                      </div>
-                    ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>{a.headcount}</div>
-                    <div style={{
-                      width: '100%', height: `${pct}%`, minHeight: 4,
-                      background: 'linear-gradient(180deg, #3B82F6 0%, #0066CC 100%)',
-                      borderRadius: '6px 6px 0 0',
-                    }} />
-                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                  <div key={a.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ height: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      {d !== null ? (
+                        <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
+                          {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
+                        </div>
+                      ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>{a.headcount}</div>
+                    </div>
+                    <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', minHeight: 0 }}>
+                      <div style={{
+                        width: '100%', height: `${pct}%`, minHeight: 4,
+                        background: 'linear-gradient(180deg, #3B82F6 0%, #0066CC 100%)',
+                        borderRadius: '6px 6px 0 0',
+                      }} />
+                    </div>
+                    <div style={{ height: 18, fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 4 }}>
                       {new Date(a.date + 'T12:00:00').toLocaleDateString('default', { month: 'numeric', day: 'numeric' })}
                     </div>
                   </div>
