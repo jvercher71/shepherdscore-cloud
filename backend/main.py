@@ -143,11 +143,13 @@ def verify_token(credentials: Annotated[HTTPAuthorizationCredentials, Security(b
             detail="church_id not found in token. Complete church onboarding first.",
         )
 
-    # Look up role from church_staff table (if exists)
+    # Look up role from church_staff table (if exists). Prefer the service-role
+    # client (bypasses RLS, ignores stale JWT claims) when configured so the
+    # lookup still works right after a new church is onboarded.
     role = "Admin"  # default for church creator
     try:
-        db = make_db(token)
-        staff_row = db.table("church_staff").select("role, active").eq("church_id", church_id).eq("user_id", user_id).execute().data
+        lookup_db = make_admin_db() or make_db(token)
+        staff_row = lookup_db.table("church_staff").select("role, active").eq("church_id", church_id).eq("user_id", user_id).execute().data
         if staff_row:
             if not staff_row[0].get("active", True):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your account has been deactivated.")
@@ -1379,7 +1381,8 @@ def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
 def list_staff(auth: AuthDep, sb: DBDep):
     """List all staff members for this church."""
     try:
-        return sb.table("church_staff").select("*").eq("church_id", auth.church_id).order("created_at").execute().data
+        read_db = _staff_db(auth, sb)
+        return read_db.table("church_staff").select("*").eq("church_id", auth.church_id).order("created_at").execute().data
     except Exception as e:
         if _staff_table_missing(e):
             # Return empty list so the page renders a usable empty-state rather than 500
