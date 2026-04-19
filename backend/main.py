@@ -143,8 +143,9 @@ def verify_token(credentials: Annotated[HTTPAuthorizationCredentials, Security(b
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning(f"Failed to fetch staff role for {user_id}: {e}")
-        # table may not exist yet, default to Admin
+        # Table may not exist yet, JWT may lack grants, etc — default to Admin
+        # so the church creator can still access their data pre-migration.
+        logger.warning(f"Staff role lookup failed for user {user_id}: {e}")
 
     return AuthContext(user_id=user_id, email=email, church_id=church_id, token=token, role=role)
 
@@ -1282,6 +1283,12 @@ def _require_admin(auth: AuthContext):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
 
+def _staff_table_missing(exc: Exception) -> bool:
+    """Heuristic: detect PostgREST errors caused by church_staff not existing."""
+    msg = str(exc).lower()
+    return "church_staff" in msg and ("does not exist" in msg or "schema cache" in msg)
+
+
 def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
     """Make sure the current user has a row in church_staff for this church so
     that subsequent INSERT/UPDATE calls pass the 'admins full access' RLS
@@ -1291,14 +1298,22 @@ def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
     succeeds when the table is empty for this church (i.e. the caller is the
     first/creator). If there are other rows but the caller has none, we raise
     a clear 403 rather than a confusing 500 from a blocked insert."""
-    mine = (
-        sb.table("church_staff")
-        .select("id, role")
-        .eq("church_id", auth.church_id)
-        .eq("user_id", auth.user_id)
-        .execute()
-        .data
-    )
+    try:
+        mine = (
+            sb.table("church_staff")
+            .select("id, role")
+            .eq("church_id", auth.church_id)
+            .eq("user_id", auth.user_id)
+            .execute()
+            .data
+        )
+    except Exception as e:
+        if _staff_table_missing(e):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Staff feature requires the church_staff table. Apply migrations 7 & 8 (or run catch_up_migrations_4_to_12.sql).",
+            )
+        raise
     if mine:
         return
 
@@ -1337,7 +1352,13 @@ def _ensure_caller_registered(auth: AuthContext, sb: Client) -> None:
 @app.get("/staff")
 def list_staff(auth: AuthDep, sb: DBDep):
     """List all staff members for this church."""
-    return sb.table("church_staff").select("*").eq("church_id", auth.church_id).order("created_at").execute().data
+    try:
+        return sb.table("church_staff").select("*").eq("church_id", auth.church_id).order("created_at").execute().data
+    except Exception as e:
+        if _staff_table_missing(e):
+            # Return empty list so the page renders a usable empty-state rather than 500
+            return []
+        raise
 
 
 @app.get("/staff/me")
