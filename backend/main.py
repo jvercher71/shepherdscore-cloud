@@ -1198,6 +1198,7 @@ def create_checkout(auth: AuthDep, sb: DBDep):
             payment_method_types=["card"],
             line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
             subscription_data={"trial_period_days": 14},
+            allow_promotion_codes=True,
             success_url=f"{origin}/billing?billing=success",
             cancel_url=f"{origin}/billing?billing=cancel",
             metadata={"church_id": auth.church_id},
