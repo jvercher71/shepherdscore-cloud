@@ -1,5 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { api } from '../lib/api'
+import PushNotificationsSection from '../components/PushNotificationsSection'
 import styles from './PageShared.module.css'
 
 interface ChurchSettings {
@@ -81,6 +82,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <PushNotificationsSection />
 
       {/* Church Info */}
       <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: 32, maxWidth: 600, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>

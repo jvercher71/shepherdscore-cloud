@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from: str = "ShepherdsCore <noreply@shepherdscore.com>"
     cors_origins: str = "http://localhost:5173"
+    # Web push (VAPID). Generate with:
+    #   python -c "from py_vapid import Vapid01; v=Vapid01(); v.generate_keys(); print(v.private_pem().decode()); print(v.public_key_urlsafe())"
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@shepherdscore.com"
 
     class Config:
         env_file = ".env"
@@ -2430,3 +2435,129 @@ def get_directory(auth: AuthDep, sb: DBDep):
         .data
     )
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Web push notifications (VAPID)
+# ---------------------------------------------------------------------------
+
+class PushKeysIn(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionIn(BaseModel):
+    endpoint: str
+    keys: PushKeysIn
+    user_agent: str = ""
+
+
+class PushUnsubscribeIn(BaseModel):
+    endpoint: str
+
+
+def _require_vapid() -> None:
+    if not settings.vapid_public_key or not settings.vapid_private_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Push notifications are not configured on this server.",
+        )
+
+
+@app.get("/push/vapid-key")
+def get_vapid_public_key():
+    """Return the VAPID public key clients use to subscribe."""
+    _require_vapid()
+    return {"public_key": settings.vapid_public_key}
+
+
+@app.post("/push/subscribe", status_code=201)
+def push_subscribe(body: PushSubscriptionIn, auth: AuthDep, sb: DBDep):
+    """Upsert a PushSubscription for the current user."""
+    _require_vapid()
+    row = {
+        "church_id": auth.church_id,
+        "user_id": auth.user_id,
+        "endpoint": body.endpoint,
+        "p256dh": body.keys.p256dh,
+        "auth": body.keys.auth,
+        "user_agent": body.user_agent[:500],
+        "last_used_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Upsert by endpoint (unique). on_conflict refreshes keys + last_used_at
+    # in case the browser rotated them.
+    resp = (
+        sb.table("push_subscriptions")
+        .upsert(row, on_conflict="endpoint")
+        .execute()
+    )
+    return (resp.data or [None])[0]
+
+
+@app.post("/push/unsubscribe", status_code=204)
+def push_unsubscribe(body: PushUnsubscribeIn, auth: AuthDep, sb: DBDep):
+    """Remove a PushSubscription by endpoint for the current user."""
+    (
+        sb.table("push_subscriptions")
+        .delete()
+        .eq("church_id", auth.church_id)
+        .eq("user_id", auth.user_id)
+        .eq("endpoint", body.endpoint)
+        .execute()
+    )
+    return None
+
+
+def _send_web_push(subscription: dict, payload: dict) -> tuple[bool, Optional[int]]:
+    """Send a single push. Returns (success, http_status). Imports pywebpush
+    lazily so the server still boots if the package isn't installed yet."""
+    from pywebpush import webpush, WebPushException  # type: ignore
+
+    try:
+        webpush(
+            subscription_info={
+                "endpoint": subscription["endpoint"],
+                "keys": {
+                    "p256dh": subscription["p256dh"],
+                    "auth": subscription["auth"],
+                },
+            },
+            data=json.dumps(payload),
+            vapid_private_key=settings.vapid_private_key,
+            vapid_claims={"sub": settings.vapid_subject},
+        )
+        return True, 201
+    except WebPushException as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        return False, status_code
+
+
+@app.post("/push/test")
+def push_test(auth: AuthDep, sb: DBDep):
+    """Send a test notification to every subscription owned by the current user.
+    Removes subscriptions the push service rejects as gone (404/410)."""
+    _require_vapid()
+    subs = (
+        sb.table("push_subscriptions")
+        .select("id, endpoint, p256dh, auth")
+        .eq("church_id", auth.church_id)
+        .eq("user_id", auth.user_id)
+        .execute()
+        .data
+        or []
+    )
+    payload = {
+        "title": "ShepherdsCore",
+        "body": "Push notifications are working.",
+        "url": "/",
+    }
+    sent = 0
+    pruned = 0
+    for sub in subs:
+        ok, code = _send_web_push(sub, payload)
+        if ok:
+            sent += 1
+        elif code in (404, 410):
+            sb.table("push_subscriptions").delete().eq("id", sub["id"]).execute()
+            pruned += 1
+    return {"sent": sent, "pruned": pruned, "total": len(subs)}
