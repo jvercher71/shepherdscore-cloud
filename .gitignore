@@ -33,3 +33,6 @@ Thumbs.db
 
 # Dev auth workaround (never commit)
 frontend/public/auth-inject.html
+
+# Generated patch bundles (regenerate with `git format-patch`)
+patches/
