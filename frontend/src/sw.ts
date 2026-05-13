@@ -1,9 +1,10 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
-import { NetworkFirst } from 'workbox-strategies'
+import { NetworkFirst, NetworkOnly } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 import { CacheableResponsePlugin } from 'workbox-cacheable-response'
+import { Queue } from 'workbox-background-sync'
 
 declare const self: ServiceWorkerGlobalScope
 
@@ -35,6 +36,53 @@ registerRoute(
       new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 }),
     ],
   }),
+)
+
+// ----- Offline write queue -----
+// Queue API POSTs that fail with a network error and replay them when the
+// browser comes back online. Updates (PUT/PATCH) and deletes are intentionally
+// left online-only to avoid last-write-wins / surprise-delete hazards.
+// /api/push/* is excluded — those are transient and shouldn't replay.
+
+const writeQueue = new Queue('shepherd-write-queue', {
+  maxRetentionTime: 24 * 60, // minutes (1 day)
+  onSync: async ({ queue }) => {
+    await broadcastSyncState(true)
+    try {
+      await queue.replayRequests()
+    } finally {
+      await broadcastSyncState(false)
+    }
+  },
+})
+
+async function getPendingCount(): Promise<number> {
+  return (await writeQueue.getAll()).length
+}
+
+async function broadcastSyncState(syncing: boolean): Promise<void> {
+  const pending = await getPendingCount()
+  const allClients = await self.clients.matchAll({ includeUncontrolled: true })
+  for (const client of allClients) {
+    client.postMessage({ type: 'SYNC_STATE_UPDATED', pending, syncing })
+  }
+}
+
+const writeQueuePlugin = {
+  fetchDidFail: async ({ request }: { request: Request }) => {
+    // Network error — pushRequest clones the request (body included).
+    await writeQueue.pushRequest({ request })
+    await broadcastSyncState(false)
+  },
+}
+
+registerRoute(
+  ({ url, request }) =>
+    request.method === 'POST' &&
+    url.pathname.startsWith('/api/') &&
+    !url.pathname.startsWith('/api/push/'),
+  new NetworkOnly({ plugins: [writeQueuePlugin] }),
+  'POST',
 )
 
 // ----- Push notifications -----
@@ -92,4 +140,13 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+  if (event.data?.type === 'SYNC_STATE_REQUEST') {
+    event.waitUntil(
+      (async () => {
+        const pending = await getPendingCount()
+        const target = event.source as Client | null
+        target?.postMessage({ type: 'SYNC_STATE_UPDATED', pending, syncing: false })
+      })(),
+    )
+  }
 })

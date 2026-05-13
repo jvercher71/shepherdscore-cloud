@@ -1,0 +1,53 @@
+.pill {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9998;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.offline {
+  background: #B45309;
+}
+
+.pending {
+  background: #4B5563;
+}
+
+.syncing {
+  background: var(--color-accent, #0066CC);
+}
+
+.syncing .dot {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (max-width: 640px) {
+  .pill {
+    top: 12px;
+    right: 12px;
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+}
