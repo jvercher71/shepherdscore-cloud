@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import styles from './PageShared.module.css'
 
@@ -10,6 +11,7 @@ interface ChurchSettings {
 const EMPTY: ChurchSettings = { name: '', address: '', phone: '', email: '', website: '', pastor_name: '', logo_url: '' }
 
 export default function SettingsPage() {
+  const navigate = useNavigate()
   const [settings, setSettings] = useState<ChurchSettings>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -101,6 +103,21 @@ export default function SettingsPage() {
             {saved && <span style={{ color: '#22C55E', fontSize: 14, fontWeight: 600 }}>Saved!</span>}
           </div>
         </form>
+      </div>
+
+      {/* Onboarding Wizard Link */}
+      <div style={{ background: 'var(--color-white)', borderRadius: 12, padding: 24, maxWidth: 600, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Workspace Setup Wizard</h3>
+          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Launch the interactive guide to step through setting up your church profile and branding.</p>
+        </div>
+        <button 
+          onClick={() => navigate('/onboard')} 
+          className={styles.secondaryBtn}
+          style={{ whiteSpace: 'nowrap', marginLeft: 16 }}
+        >
+          Launch Wizard
+        </button>
       </div>
     </div>
   )
