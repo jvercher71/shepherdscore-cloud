@@ -5,12 +5,13 @@ Multi-tenant church management API backed by Supabase (PostgreSQL + RLS)
 
 from contextlib import asynccontextmanager
 from typing import Annotated, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from collections import defaultdict
 import base64
 import json
 import logging
+import jwt
 
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Security, status, Query
@@ -2430,3 +2431,301 @@ def get_directory(auth: AuthDep, sb: DBDep):
         .data
     )
     return rows
+
+
+# ===========================================================================
+# MEMBER PORTAL (Passwordless auth, profile, directory, precheck)
+# ===========================================================================
+
+class PortalRequestCodeIn(BaseModel):
+    email: str
+
+class PortalVerifyCodeIn(BaseModel):
+    email: str
+    code: str
+
+class PortalAuthContext(BaseModel):
+    member_id: str
+    church_id: str
+    role: str = "Member"
+
+# Dependency to verify the custom portal JWT token
+def verify_portal_token(
+    credentials: Annotated[HTTPAuthorizationCredentials, Security(bearer_scheme)]
+) -> PortalAuthContext:
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.supabase_anon_key, algorithms=["HS256"])
+        if payload.get("role") != "Member":
+            raise HTTPException(status_code=403, detail="Invalid token role")
+        return PortalAuthContext(
+            member_id=payload["member_id"],
+            church_id=payload["church_id"],
+            role="Member"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid portal token: {e}"
+        )
+
+PortalAuthDep = Annotated[PortalAuthContext, Depends(verify_portal_token)]
+
+@app.post("/portal/request-code")
+def request_portal_code(body: PortalRequestCodeIn):
+    email = body.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+        
+    admin_db = make_admin_db()
+    if not admin_db:
+        raise HTTPException(status_code=500, detail="Database configuration error")
+        
+    # Check if a member exists with this email
+    members = admin_db.table("members").select("id, church_id").eq("email", email).execute().data
+    if not members:
+        # Avoid email enumeration: return success even if not found, but log it
+        logger.info(f"Portal login requested for unregistered email: {email}")
+        return {"message": "If an account exists with that email, a verification code has been sent."}
+        
+    # Generate 6-digit random code
+    import random
+    code = f"{random.randint(100000, 999999)}"
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    
+    # Store in portal_codes
+    admin_db.table("portal_codes").insert({
+        "email": email,
+        "code": code,
+        "expires_at": expires_at
+    }).execute()
+    
+    # Send email notification
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+      <h2 style="color: #0066CC; text-align: center;">ShepherdsCore Member Portal</h2>
+      <p>Hello,</p>
+      <p>You requested a login code to access your church Member Portal. Use the verification code below to sign in:</p>
+      <div style="background: #f0f2f5; padding: 15px; text-align: center; font-size: 24px; font-weight: 800; letter-spacing: 4px; border-radius: 6px; margin: 20px 0; color: #1a1a2e;">
+        {code}
+      </div>
+      <p style="font-size: 13px; color: #6b7280; text-align: center;">This code will expire in 10 minutes. If you did not request this code, please ignore this email.</p>
+    </div>
+    """
+    
+    # Log the code for local dev easy access (since Resend is not configured by default locally)
+    logger.info(f"Portal Verification Code for {email}: {code}")
+    print(f"\n[PORTAL LOGIN PIN] Email: {email} | CODE: {code}\n")
+    
+    send_email(email, "Your Member Portal Verification Code", html_content)
+    return {"message": "If an account exists with that email, a verification code has been sent."}
+
+@app.post("/portal/verify-code")
+def verify_portal_code(body: PortalVerifyCodeIn):
+    email = body.email.strip().lower()
+    code = body.code.strip()
+    
+    admin_db = make_admin_db()
+    if not admin_db:
+        raise HTTPException(status_code=500, detail="Database configuration error")
+        
+    # Check code in portal_codes
+    now = datetime.now(timezone.utc).isoformat()
+    records = admin_db.table("portal_codes").select("*").eq("email", email).eq("code", code).gte("expires_at", now).execute().data
+    if not records:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+        
+    # Delete verified code
+    admin_db.table("portal_codes").delete().eq("id", records[0]["id"]).execute()
+    
+    # Fetch member info
+    member = admin_db.table("members").select("id, church_id").eq("email", email).execute().data
+    if not member:
+        raise HTTPException(status_code=404, detail="Member record not found")
+        
+    # Generate signed portal token
+    payload = {
+        "member_id": member[0]["id"],
+        "church_id": member[0]["church_id"],
+        "role": "Member",
+        "exp": datetime.now(timezone.utc) + timedelta(days=30)
+    }
+    token = jwt.encode(payload, settings.supabase_anon_key, algorithm="HS256")
+    return {"token": token, "member_id": member[0]["id"]}
+
+@app.get("/portal/me")
+def get_portal_me(auth: PortalAuthDep):
+    admin_db = make_admin_db()
+    if not admin_db:
+        raise HTTPException(status_code=500, detail="Database configuration error")
+        
+    # Fetch member profile details
+    member_resp = admin_db.table("members").select("*").eq("id", auth.member_id).single().execute()
+    if not member_resp.data:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    member = member_resp.data
+    
+    # Fetch family members if family_id is set
+    family = []
+    if member.get("family_id"):
+        family_resp = admin_db.table("members").select("id, first_name, last_name, preferred_name, photo_url, status").eq("family_id", member["family_id"]).execute()
+        family = family_resp.data
+        
+    return {
+        "member": member,
+        "family": family
+    }
+
+class PortalUpdateProfileIn(BaseModel):
+    first_name: str
+    last_name: str
+    preferred_name: str = ""
+    phone: str = ""
+    cell_phone: str = ""
+    address: str = ""
+    city: str = ""
+    state: str = ""
+    zip: str = ""
+    directory_opt_in: bool = False
+
+@app.put("/portal/me")
+def update_portal_profile(body: PortalUpdateProfileIn, auth: PortalAuthDep):
+    admin_db = make_admin_db()
+    if not admin_db:
+        raise HTTPException(status_code=500, detail="Database configuration error")
+        
+    resp = admin_db.table("members").update(body.model_dump()).eq("id", auth.member_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Failed to update member profile")
+    return resp.data[0]
+
+@app.post("/portal/photo")
+def upload_portal_photo(body: LogoUploadIn, auth: PortalAuthDep):
+    """Upload member photo via base64 to church-logos bucket."""
+    raw = body.logo_base64
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        photo_bytes = base64.b64decode(raw, validate=True)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+        
+    if len(photo_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image must be less than 5MB")
+        
+    ext = body.filename.rsplit(".", 1)[-1].lower() if "." in body.filename else "png"
+    if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
+        raise HTTPException(status_code=400, detail="Invalid image type")
+        
+    storage_path = f"{auth.church_id}/members/{auth.member_id}.{ext}"
+    content_type = f"image/{'jpeg' if ext in ('jpg','jpeg') else ext}"
+    
+    # Upload to Supabase Storage
+    resp = httpx.post(
+        f"{settings.supabase_url}/storage/v1/object/church-logos/{storage_path}",
+        headers={
+            "Authorization": f"Bearer {settings.supabase_service_role_key}",
+            "apikey": settings.supabase_anon_key,
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        },
+        content=photo_bytes,
+        timeout=30.0,
+    )
+    if not resp.is_success:
+        raise HTTPException(status_code=500, detail="Photo upload failed. Please try again.")
+        
+    public_url = f"{settings.supabase_url}/storage/v1/object/public/church-logos/{storage_path}?t={int(datetime.now(timezone.utc).timestamp())}"
+    
+    admin_db = make_admin_db()
+    if admin_db:
+        admin_db.table("members").update({"photo_url": public_url}).eq("id", auth.member_id).execute()
+        
+    return {"photo_url": public_url}
+
+@app.get("/portal/directory")
+def get_portal_directory(auth: PortalAuthDep):
+    admin_db = make_admin_db()
+    if not admin_db:
+        raise HTTPException(status_code=500, detail="Database configuration error")
+        
+    # Query other members of the same church who opted in
+    rows = (
+        admin_db.table("members")
+        .select("id, first_name, last_name, preferred_name, phone, cell_phone, email, address, city, state, zip, photo_url")
+        .eq("church_id", auth.church_id)
+        .eq("status", "Active")
+        .eq("directory_opt_in", True)
+        .order("last_name")
+        .execute()
+        .data
+    )
+    return rows
+
+@app.get("/portal/events")
+def get_portal_events(auth: PortalAuthDep):
+    admin_db = make_admin_db()
+    if not admin_db:
+        raise HTTPException(status_code=500, detail="Database configuration error")
+        
+    today = datetime.now(timezone.utc).date().isoformat()
+    rows = (
+        admin_db.table("events")
+        .select("*")
+        .eq("church_id", auth.church_id)
+        .gte("date", today)
+        .order("date")
+        .limit(10)
+        .execute()
+        .data
+    )
+    return rows
+
+class PortalPreCheckIn(BaseModel):
+    event_id: str
+    member_ids: list[str]
+
+@app.post("/portal/precheck")
+def generate_portal_precheck(body: PortalPreCheckIn, auth: PortalAuthDep):
+    # Generates code string 'sc-pc:<event_id>:<m1,m2,...>'
+    event_id = body.event_id
+    member_ids = ",".join(body.member_ids)
+    scan_code = f"sc-pc:{event_id}:{member_ids}"
+    return {"scan_code": scan_code}
+
+class PrecheckScanIn(BaseModel):
+    scan_code: str
+
+@app.post("/events/precheck-scan")
+def scan_precheck(body: PrecheckScanIn, auth: AuthDep, sb: DBDep):
+    code = body.scan_code
+    if not code.startswith("sc-pc:"):
+        raise HTTPException(status_code=400, detail="Invalid pre-check code format")
+    
+    parts = code.split(":")
+    if len(parts) < 3:
+        raise HTTPException(status_code=400, detail="Invalid pre-check code format")
+        
+    event_id = parts[1]
+    member_ids = parts[2].split(",")
+    
+    # Verify event belongs to staff's church
+    sb_get(sb, "events", auth.church_id, event_id)
+    
+    checked_in = []
+    for mid in member_ids:
+        mid = mid.strip()
+        if not mid:
+            continue
+        try:
+            # Check if already checked in
+            exists = sb.table("event_attendance").select("id").eq("event_id", event_id).eq("member_id", mid).execute().data
+            if not exists:
+                sb_insert(sb, "event_attendance", {"event_id": event_id, "member_id": mid})
+            checked_in.append(mid)
+        except Exception as e:
+            logger.warning(f"Failed checking in member {mid} during scan: {e}")
+            
+    return {"status": "ok", "event_id": event_id, "checked_in": checked_in}
+

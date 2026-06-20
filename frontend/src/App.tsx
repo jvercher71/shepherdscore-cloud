@@ -25,11 +25,25 @@ import BillingPage from './pages/BillingPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import SettingsPage from './pages/SettingsPage'
 
+// Member Portal Pages
+import PortalLayout from './components/PortalLayout'
+import PortalLoginPage from './pages/PortalLoginPage'
+import PortalDashboardPage from './pages/PortalDashboardPage'
+import PortalProfilePage from './pages/PortalProfilePage'
+import PortalDirectoryPage from './pages/PortalDirectoryPage'
+import PortalPreCheckPage from './pages/PortalPreCheckPage'
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>Loading…</div>
   if (!session) return <Navigate to="/login" replace />
   if (!session.user?.app_metadata?.church_id) return <Navigate to="/onboard" replace />
+  return <>{children}</>
+}
+
+function RequirePortalAuth({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('shepherdscore_portal_token')
+  if (!token) return <Navigate to="/portal/login" replace />
   return <>{children}</>
 }
 
@@ -71,6 +85,16 @@ function AppRoutes() {
         <Route path="help" element={<HelpPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
+      
+      {/* Member Portal Public & Private Routes */}
+      <Route path="/portal/login" element={<PortalLoginPage />} />
+      <Route element={<RequirePortalAuth><PortalLayout /></RequirePortalAuth>}>
+        <Route path="/portal" element={<PortalDashboardPage />} />
+        <Route path="/portal/profile" element={<PortalProfilePage />} />
+        <Route path="/portal/directory" element={<PortalDirectoryPage />} />
+        <Route path="/portal/precheck" element={<PortalPreCheckPage />} />
+      </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

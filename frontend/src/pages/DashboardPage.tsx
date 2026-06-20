@@ -23,6 +23,11 @@ export default function DashboardPage() {
   const [members, setMembers] = useState<MemberLite[]>([])
   const [error, setError] = useState('')
 
+  // Sleek SVG Chart interactive hover states
+  const [activeGiving, setActiveGiving] = useState<number | null>(null)
+  const [activeAttendance, setActiveAttendance] = useState<number | null>(null)
+  const [activeStatus, setActiveStatus] = useState<number | null>(null)
+
   useEffect(() => {
     Promise.all([
       api.get<Stats>('/dashboard/stats'),
@@ -54,8 +59,6 @@ export default function DashboardPage() {
     return out
   })()
   const maxGiving = Math.max(1, ...givingByMonth.map(r => r.total))
-  const minGivingRaw = Math.min(...givingByMonth.map(r => r.total).filter(v => v > 0))
-  const minGiving = isFinite(minGivingRaw) ? minGivingRaw : 0
 
   // Sunday attendance, last 8 records
   const sundayAttendance = [...attendance]
@@ -65,15 +68,7 @@ export default function DashboardPage() {
   const maxAttendance = Math.max(1, ...sundayAttendance.map(a => a.headcount))
   const minAttendance = Math.min(...sundayAttendance.map(a => a.headcount))
 
-  /** Scale a value to a bar-height % using a dynamic range baseline so
-   * month-to-month differences are dramatically visible even when absolute
-   * values are close. Smallest value renders ~18% tall, largest 100%. The
-   * numeric value and \u25b2/\u25bc % delta above each bar show the real figures. */
-  const scaleHeight = (val: number, min: number, max: number) => {
-    if (val <= 0 || max <= 0) return 4
-    if (max <= min) return 100
-    return 18 + ((val - min) / (max - min)) * 82
-  }
+
 
   /** Period-over-period % change between two values. */
   const delta = (curr: number, prev: number): number | null => {
@@ -107,6 +102,14 @@ export default function DashboardPage() {
     Active: '#22C55E', Visitor: '#0066CC', Inactive: '#6B7280', Transferred: '#8B5CF6', Deceased: '#9CA3AF',
   }
   const membersTotal = members.length
+
+  const slices = statusOrder
+    .map((s, idx) => {
+      const count = statusCounts[s] || 0
+      const pct = count / (membersTotal || 1)
+      return { label: s, count, pct, color: statusColors[s], idx }
+    })
+    .filter(s => s.count > 0)
 
   // New members last 30 days
   const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
@@ -173,36 +176,98 @@ export default function DashboardPage() {
           {giving.length === 0 ? (
             <EmptyNote>No giving recorded yet.</EmptyNote>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, height: 230, padding: '4px 0' }}>
-              {givingByMonth.map((r, i) => {
-                const pct = scaleHeight(r.total, minGiving, maxGiving)
-                const d = i > 0 ? delta(r.total, givingByMonth[i - 1].total) : null
-                return (
-                  <div key={r.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    {/* Header: delta + value (fixed height) */}
-                    <div style={{ height: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      {d !== null ? (
-                        <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
-                          {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
-                        </div>
-                      ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>
-                        {r.total > 0 ? `$${Math.round(r.total).toLocaleString()}` : '—'}
-                      </div>
-                    </div>
-                    {/* Bar track — fills remaining vertical space, bar fills pct of it */}
-                    <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', minHeight: 0 }}>
-                      <div style={{
-                        width: '100%', height: `${pct}%`, minHeight: 4,
-                        background: 'linear-gradient(180deg, #22C55E 0%, #16a34a 100%)',
-                        borderRadius: '6px 6px 0 0',
-                      }} />
-                    </div>
-                    {/* Month label (fixed height) */}
-                    <div style={{ height: 18, fontSize: 11, color: 'var(--color-text-secondary)', fontWeight: 600, marginTop: 4 }}>{r.label}</div>
-                  </div>
-                )
-              })}
+            <div style={{ position: 'relative', height: 230 }}>
+              {activeGiving !== null && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(15, 25, 35, 0.95)',
+                  color: '#fff',
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2
+                }}>
+                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>{givingByMonth[activeGiving].label}</span>
+                  <span style={{ fontSize: 13 }}>${Math.round(givingByMonth[activeGiving].total).toLocaleString()}</span>
+                  {activeGiving > 0 && (() => {
+                    const d = delta(givingByMonth[activeGiving].total, givingByMonth[activeGiving - 1].total)
+                    if (d === null) return null
+                    return (
+                      <span style={{ color: d >= 0 ? '#4ADE80' : '#F87171', fontSize: 10, fontWeight: 700 }}>
+                        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}% vs last month
+                      </span>
+                    )
+                  })()}
+                </div>
+              )}
+              <svg width="100%" height="200" viewBox="0 0 400 200" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+                <defs>
+                  <linearGradient id="givingGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22C55E" />
+                    <stop offset="100%" stopColor="#16a34a" stopOpacity="0.8" />
+                  </linearGradient>
+                </defs>
+                {/* Horizontal grid lines */}
+                {[0, 0.25, 0.5, 0.75, 1].map((p, idx) => {
+                  const y = 20 + p * 130
+                  return (
+                    <line key={idx} x1="40" y1={y} x2="385" y2={y} stroke="var(--color-border)" strokeWidth="1" strokeDasharray="4 4" />
+                  )
+                })}
+                {/* Y-Axis values */}
+                {[1, 0.5, 0].map((p, idx) => {
+                  const y = 20 + (1 - p) * 130 + 4
+                  const val = p * maxGiving
+                  return (
+                    <text key={idx} x="32" y={y} fontSize="10" fontWeight="600" fill="var(--color-text-secondary)" textAnchor="end">
+                      {val > 0 ? `$${Math.round(val/1000)}k` : '$0'}
+                    </text>
+                  )
+                })}
+                {givingByMonth.map((r, i) => {
+                  const gridWidth = 345
+                  const x = 40 + (i + 0.1) * (gridWidth / 6)
+                  const w = 0.8 * (gridWidth / 6)
+                  const barHeight = (r.total / maxGiving) * 130
+                  const y = 150 - barHeight
+                  const isHovered = activeGiving === i
+
+                  return (
+                    <g key={r.key} onMouseEnter={() => setActiveGiving(i)} onMouseLeave={() => setActiveGiving(null)} style={{ cursor: 'pointer' }}>
+                      {/* Interactive background area to make hover easier */}
+                      <rect x={x} y="20" width={w} height="130" fill="transparent" />
+                      {/* Visual Bar */}
+                      <rect
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={Math.max(4, barHeight)}
+                        fill="url(#givingGrad)"
+                        rx="4"
+                        ry="4"
+                        style={{
+                          transition: 'all 0.2s ease',
+                          filter: isHovered ? 'brightness(1.15) drop-shadow(0 4px 8px rgba(34, 197, 94, 0.3))' : 'none'
+                        }}
+                      />
+                      {/* Label */}
+                      <text x={x + w / 2} y="170" fontSize="10" fontWeight="600" fill={isHovered ? 'var(--color-accent)' : 'var(--color-text-secondary)'} textAnchor="middle">
+                        {r.label}
+                      </text>
+                    </g>
+                  )
+                })}
+              </svg>
             </div>
           )}
         </Panel>
@@ -211,33 +276,132 @@ export default function DashboardPage() {
           {sundayAttendance.length === 0 ? (
             <EmptyNote>No Sunday Service attendance recorded yet.</EmptyNote>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, height: 230, padding: '4px 0' }}>
-              {sundayAttendance.map((a, i) => {
-                const pct = scaleHeight(a.headcount, minAttendance, maxAttendance)
-                const d = i > 0 ? delta(a.headcount, sundayAttendance[i - 1].headcount) : null
-                return (
-                  <div key={a.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ height: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      {d !== null ? (
-                        <div style={{ fontSize: 10, fontWeight: 700, color: d >= 0 ? '#16a34a' : '#DC2626' }}>
-                          {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
-                        </div>
-                      ) : <div style={{ fontSize: 10 }}>&nbsp;</div>}
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text)' }}>{a.headcount}</div>
-                    </div>
-                    <div style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end', minHeight: 0 }}>
-                      <div style={{
-                        width: '100%', height: `${pct}%`, minHeight: 4,
-                        background: 'linear-gradient(180deg, #3B82F6 0%, #0066CC 100%)',
-                        borderRadius: '6px 6px 0 0',
-                      }} />
-                    </div>
-                    <div style={{ height: 18, fontSize: 10, color: 'var(--color-text-secondary)', marginTop: 4 }}>
-                      {new Date(a.date + 'T12:00:00').toLocaleDateString('default', { month: 'numeric', day: 'numeric' })}
-                    </div>
-                  </div>
-                )
-              })}
+            <div style={{ position: 'relative', height: 230 }}>
+              {activeAttendance !== null && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(15, 25, 35, 0.95)',
+                  color: '#fff',
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2
+                }}>
+                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>
+                    {new Date(sundayAttendance[activeAttendance].date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+                  </span>
+                  <span style={{ fontSize: 13 }}>{sundayAttendance[activeAttendance].headcount} Attendees</span>
+                  {activeAttendance > 0 && (() => {
+                    const d = delta(sundayAttendance[activeAttendance].headcount, sundayAttendance[activeAttendance - 1].headcount)
+                    if (d === null) return null
+                    return (
+                      <span style={{ color: d >= 0 ? '#4ADE80' : '#F87171', fontSize: 10, fontWeight: 700 }}>
+                        {d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}% vs last week
+                      </span>
+                    )
+                  })()}
+                </div>
+              )}
+              <svg width="100%" height="200" viewBox="0 0 400 200" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+                <defs>
+                  <linearGradient id="attendanceAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#0066CC" stopOpacity="0.0" />
+                  </linearGradient>
+                  <linearGradient id="attendanceLineGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#3B82F6" />
+                    <stop offset="100%" stopColor="#0066CC" />
+                  </linearGradient>
+                </defs>
+                {/* Horizontal grid lines */}
+                {[0, 0.25, 0.5, 0.75, 1].map((p, idx) => {
+                  const y = 20 + p * 130
+                  return (
+                    <line key={idx} x1="40" y1={y} x2="385" y2={y} stroke="var(--color-border)" strokeWidth="1" strokeDasharray="4 4" />
+                  )
+                })}
+                {/* Y-Axis values */}
+                {[1, 0.5, 0].map((p, idx) => {
+                  const y = 20 + (1 - p) * 130 + 4
+                  const valRange = maxAttendance - minAttendance || 1
+                  const val = minAttendance + p * valRange
+                  return (
+                    <text key={idx} x="32" y={y} fontSize="10" fontWeight="600" fill="var(--color-text-secondary)" textAnchor="end">
+                      {Math.round(val)}
+                    </text>
+                  )
+                })}
+                {(() => {
+                  const pts = sundayAttendance.map((a, i) => {
+                    const gridWidth = 345
+                    const x = 40 + i * (gridWidth / (sundayAttendance.length - 1 || 1))
+                    const valRange = maxAttendance - minAttendance || 1
+                    const y = 150 - ((a.headcount - minAttendance) / valRange) * 130
+                    return { x, y }
+                  })
+
+                  // Build smooth curve path
+                  let lineD = ''
+                  if (pts.length > 0) {
+                    lineD = `M ${pts[0].x} ${pts[0].y}`
+                    for (let i = 0; i < pts.length - 1; i++) {
+                      const p0 = pts[i]
+                      const p1 = pts[i + 1]
+                      const cpX1 = p0.x + (p1.x - p0.x) / 2
+                      const cpY1 = p0.y
+                      const cpX2 = p0.x + (p1.x - p0.x) / 2
+                      const cpY2 = p1.y
+                      lineD += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${p1.x} ${p1.y}`
+                    }
+                  }
+
+                  const areaD = lineD ? `${lineD} L ${pts[pts.length - 1].x} 150 L ${pts[0].x} 150 Z` : ''
+
+                  return (
+                    <>
+                      {/* Area Fill */}
+                      {areaD && <path d={areaD} fill="url(#attendanceAreaGrad)" />}
+                      {/* Spline Line */}
+                      {lineD && <path d={lineD} fill="none" stroke="url(#attendanceLineGrad)" strokeWidth="3" strokeLinecap="round" />}
+                      {/* Interactive Nodes */}
+                      {pts.map((p, i) => {
+                        const dateLabel = new Date(sundayAttendance[i].date + 'T12:00:00').toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })
+                        const isHovered = activeAttendance === i
+                        return (
+                          <g key={sundayAttendance[i].id} onMouseEnter={() => setActiveAttendance(i)} onMouseLeave={() => setActiveAttendance(null)} style={{ cursor: 'pointer' }}>
+                            {/* Larger invisible trigger circle */}
+                            <circle cx={p.x} cy={p.y} r="14" fill="transparent" />
+                            {/* Inner point */}
+                            <circle
+                              cx={p.x}
+                              cy={p.y}
+                              r={isHovered ? 6 : 4}
+                              fill={isHovered ? '#0066CC' : '#fff'}
+                              stroke="#0066CC"
+                              strokeWidth={isHovered ? 3 : 2}
+                              style={{ transition: 'all 0.15s ease' }}
+                            />
+                            {/* X-axis Label */}
+                            <text x={p.x} y="170" fontSize="10" fontWeight="600" fill={isHovered ? 'var(--color-accent)' : 'var(--color-text-secondary)'} textAnchor="middle">
+                              {dateLabel}
+                            </text>
+                          </g>
+                        )
+                      })}
+                    </>
+                  )
+                })()}
+              </svg>
             </div>
           )}
         </Panel>
@@ -266,22 +430,107 @@ export default function DashboardPage() {
           {membersTotal === 0 ? (
             <EmptyNote>No members yet.</EmptyNote>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {statusOrder.filter(s => (statusCounts[s] ?? 0) > 0).map(s => {
-                const count = statusCounts[s] || 0
-                const pct = (count / membersTotal) * 100
-                return (
-                  <div key={s}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600, color: statusColors[s] || '#888' }}>{s}</span>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>{count} · {pct.toFixed(0)}%</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24, minHeight: 180, flexWrap: 'wrap' }}>
+              {/* Donut Chart */}
+              <div style={{ position: 'relative', width: 140, height: 140, flexShrink: 0, margin: '0 auto' }}>
+                {activeStatus !== null && (() => {
+                  const slice = slices.find(s => s.idx === activeStatus)
+                  if (!slice) return null
+                  return (
+                    <div style={{
+                      position: 'absolute',
+                      bottom: -32,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      background: 'rgba(15, 25, 35, 0.95)',
+                      color: '#fff',
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      pointerEvents: 'none',
+                      whiteSpace: 'nowrap',
+                      zIndex: 10,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                    }}>
+                      {slice.label}: {slice.count} ({Math.round(slice.pct * 100)}%)
                     </div>
-                    <div style={{ height: 8, borderRadius: 4, background: 'var(--color-bg)', overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', background: statusColors[s] || '#888' }} />
+                  )
+                })()}
+                <svg width="140" height="140" viewBox="0 0 150 150">
+                  {/* Base track circle */}
+                  <circle cx="75" cy="75" r="36" fill="transparent" stroke="var(--color-bg)" strokeWidth="8" />
+                  {(() => {
+                    let accumulatedOffset = 0
+                    return slices.map(slice => {
+                      const offset = accumulatedOffset
+                      accumulatedOffset += slice.pct * 226.195
+                      const isHovered = activeStatus === slice.idx
+                      return (
+                        <circle
+                          key={slice.label}
+                          cx="75"
+                          cy="75"
+                          r="36"
+                          fill="transparent"
+                          stroke={slice.color}
+                          strokeWidth={isHovered ? 12 : 8}
+                          strokeDasharray={`${slice.pct * 226.195} 226.195`}
+                          strokeDashoffset={-offset}
+                          transform="rotate(-90 75 75)"
+                          onMouseEnter={() => setActiveStatus(slice.idx)}
+                          onMouseLeave={() => setActiveStatus(null)}
+                          style={{
+                            transition: 'all 0.2s ease',
+                            cursor: 'pointer'
+                          }}
+                        />
+                      )
+                    })
+                  })()}
+                  {/* Center Text */}
+                  <text x="75" y="72" fontSize="16" fontWeight="800" fill="var(--color-text)" textAnchor="middle">
+                    {membersTotal}
+                  </text>
+                  <text x="75" y="86" fontSize="10" fontWeight="600" fill="var(--color-text-secondary)" textAnchor="middle" style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Members
+                  </text>
+                </svg>
+              </div>
+
+              {/* Status List Legend */}
+              <div style={{ flex: 1, minWidth: 160, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {slices.map(slice => {
+                  const isHovered = activeStatus === slice.idx
+                  return (
+                    <div 
+                      key={slice.label} 
+                      onMouseEnter={() => setActiveStatus(slice.idx)}
+                      onMouseLeave={() => setActiveStatus(null)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        background: isHovered ? 'rgba(0,102,204,0.04)' : 'transparent',
+                        transition: 'background 0.2s',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 2 }}>
+                        <span style={{ fontWeight: 700, color: slice.color }}>{slice.label}</span>
+                        <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{slice.count} · {Math.round(slice.pct * 100)}%</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: 'var(--color-bg)', overflow: 'hidden' }}>
+                        <div style={{ 
+                          width: `${slice.pct * 100}%`, 
+                          height: '100%', 
+                          background: slice.color,
+                          transition: 'width 0.3s ease'
+                        }} />
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           )}
         </Panel>
